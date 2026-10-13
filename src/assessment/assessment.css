@@ -1,0 +1,13 @@
+/* Assessment module styles. Everything is prefixed (se-) or scoped under .se-root
+   so nothing here can alter the Practice (skillEngine) screens. */
+.se-card { @apply rounded-2xl border border-orange-100 bg-white shadow-sm; }
+.se-btn-primary, .se-btn-outline, .se-btn-ghost {
+  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+}
+.se-btn-primary { @apply bg-brand text-white hover:bg-brand-dark; }
+.se-btn-outline { @apply border border-stone-300 bg-white text-ink hover:bg-stone-50; }
+.se-btn-ghost { @apply text-ink-soft hover:bg-stone-100; }
+.se-root :focus-visible { outline: 2px solid #E8450A; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .se-root *, .se-root *::before, .se-root *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

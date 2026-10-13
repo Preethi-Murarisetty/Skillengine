@@ -1,0 +1,238 @@
+/* Admin panel styles - scoped under .admin-root so they never leak into the student app */
+.admin-root { min-height: 100vh; font-family: Arial, sans-serif; background: #f4f6f9; }
+.admin-root, .admin-root *, .admin-root *::before, .admin-root *::after { box-sizing: border-box; }
+
+.admin-root .login-page {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.admin-root .login-card {
+  width: 400px;
+  padding: 40px;
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+.admin-root .login-card h1 {
+  margin: 0 0 10px;
+  text-align: center;
+  font-size: 30px;
+}
+.admin-root .login-card p {
+  text-align: center;
+  color: #666;
+  margin-bottom: 30px;
+}
+.admin-root .login-card form {
+  display: flex;
+  flex-direction: column;
+}
+.admin-root .login-card label {
+  margin-bottom: 7px;
+  font-weight: 600;
+}
+.admin-root .login-card input {
+  padding: 12px;
+  margin-bottom: 20px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 15px;
+}
+.admin-root .login-card input:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+.admin-root .login-card button {
+  padding: 12px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: white;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-root .login-card button:hover {
+  background: #1d4ed8;
+}
+/* Dashboard */
+.admin-root .dashboard-page {
+  min-height: 100vh;
+  padding: 40px;
+  background: #f4f6f9;
+}
+.admin-root .dashboard-header {
+  margin-bottom: 35px;
+}
+.admin-root .dashboard-header h1 {
+  margin: 0;
+  font-size: 32px;
+}
+.admin-root .dashboard-header p {
+  margin-top: 8px;
+  color: #666;
+  font-size: 16px;
+}
+.admin-root .dashboard-cards {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 25px;
+}
+.admin-root .dashboard-card {
+  background: white;
+  padding: 30px;
+  border-radius: 12px;
+  box-shadow: 0 5px 20px rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+.admin-root .dashboard-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.12);
+}
+.admin-root .dashboard-card h2 {
+  margin-top: 0;
+  margin-bottom: 10px;
+}
+.admin-root .dashboard-card p {
+  color: #666;
+  min-height: 45px;
+}
+.admin-root .dashboard-card button {
+  margin-top: 15px;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 6px;
+  background: #2563eb;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+/* =========================
+   ADMIN LAYOUT
+========================= */
+.admin-root .admin-layout {
+  min-height: 100vh;
+  display: flex;
+  background: #fffaf5;
+}
+/* Sidebar */
+.admin-root .admin-sidebar {
+  width: 245px;
+  min-height: 100vh;
+  background: #fff;
+  border-right: 1px solid #eadfd6;
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+}
+.admin-root .sidebar-logo {
+  height: 78px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 20px;
+  border-bottom: 1px solid #eadfd6;
+}
+.admin-root .logo-box {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #f4511e;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  font-size: 18px;
+}
+.admin-root .sidebar-logo span {
+  font-size: 22px;
+  font-weight: 700;
+  color: #292929;
+}
+.admin-root .sidebar-menu {
+  padding: 25px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.admin-root .sidebar-link {
+  text-decoration: none;
+  color: #765f52;
+  padding: 13px 18px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  transition: 0.2s;
+}
+.admin-root .sidebar-link:hover {
+  background: #fff1e6;
+  color: #f4511e;
+}
+.admin-root .sidebar-link.active {
+  background: #fff1e6;
+  color: #f4511e;
+}
+/* Main */
+.admin-root .admin-main {
+  margin-left: 245px;
+  width: calc(100% - 245px);
+  min-height: 100vh;
+}
+/* Header */
+.admin-root .admin-header {
+  height: 78px;
+  background: #fff;
+  border-bottom: 1px solid #eadfd6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+}
+.admin-root .breadcrumb {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  color: #a27f6d;
+  font-size: 15px;
+}
+.admin-root .breadcrumb strong {
+  color: #49382f;
+}
+.admin-root .admin-profile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #eadfd6;
+  padding: 8px 14px;
+  border-radius: 12px;
+  color: #5c463a;
+  font-weight: 600;
+}
+.admin-root .profile-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #f4511e;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+/* Content */
+.admin-root .admin-content {
+  min-height: calc(100vh - 78px);
+  padding: 35px;
+  background: linear-gradient(
+    135deg,
+    #fff8f1 0%,
+    #fffdf9 50%,
+    #fff7ed 100%
+  );
+}

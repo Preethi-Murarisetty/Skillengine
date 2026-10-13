@@ -1,0 +1,239 @@
+/* ================================
+   PDF QUIZ MANAGEMENT
+================================ */
+.admin-root .pdf-quiz-page {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.admin-root .pdf-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 25px;
+}
+.admin-root .pdf-page-header h1 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #292929;
+}
+.admin-root .pdf-page-header p {
+  margin: 0;
+  color: #765f52;
+  font-size: 15px;
+}
+.admin-root .pdf-refresh-btn {
+  background: #fff;
+  color: #5c463a;
+  border: 1px solid #eadfd6;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 600;
+}
+.admin-root .pdf-refresh-btn:hover {
+  background: #fff1e6;
+}
+/* CARDS */
+.admin-root .pdf-card {
+  background: #fff;
+  border: 1px solid #eadfd6;
+  border-radius: 14px;
+  padding: 25px;
+  margin-bottom: 22px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.04);
+}
+.admin-root .pdf-card h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  color: #292929;
+}
+.admin-root .pdf-card-subtitle {
+  margin: 0 0 20px;
+  color: #765f52;
+  font-size: 14px;
+}
+/* STATUS */
+.admin-root .pdf-status {
+  padding: 14px 16px;
+  border-radius: 9px;
+  margin-top: 18px;
+  font-weight: 600;
+}
+.admin-root .pdf-status-active {
+  background: #dcfce7;
+  color: #166534;
+}
+.admin-root .pdf-status-not-started {
+  background: #fef3c7;
+  color: #92400e;
+}
+.admin-root .pdf-status-ended {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.admin-root .pdf-status-none {
+  background: #f3f4f6;
+  color: #374151;
+}
+/* EXAM DETAILS */
+.admin-root .pdf-exam-details {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-top: 18px;
+}
+.admin-root .pdf-detail {
+  background: #faf8f6;
+  border: 1px solid #eee4dc;
+  border-radius: 9px;
+  padding: 15px;
+}
+.admin-root .pdf-detail span {
+  display: block;
+  color: #8b7467;
+  font-size: 13px;
+  margin-bottom: 7px;
+}
+.admin-root .pdf-detail strong {
+  color: #49382f;
+  font-size: 15px;
+}
+.admin-root .pdf-no-exam {
+  margin-top: 18px;
+  padding: 20px;
+  text-align: center;
+  background: #faf8f6;
+  border-radius: 9px;
+  color: #765f52;
+}
+/* FORM */
+.admin-root .pdf-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+.admin-root .pdf-form-group {
+  display: flex;
+  flex-direction: column;
+}
+.admin-root .pdf-form-group label {
+  margin-bottom: 7px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #49382f;
+}
+.admin-root .pdf-form-group input {
+  width: 100%;
+  padding: 12px 13px;
+  border: 1px solid #ded3cb;
+  border-radius: 8px;
+  font-size: 14px;
+  background: #fff;
+}
+.admin-root .pdf-form-group input:focus {
+  outline: none;
+  border-color: #f4511e;
+  box-shadow: 0 0 0 3px rgba(244, 81, 30, 0.08);
+}
+/* BUTTON */
+.admin-root .pdf-primary-btn {
+  margin-top: 22px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #f4511e;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-root .pdf-primary-btn:hover {
+  background: #d84315;
+}
+/* MESSAGES */
+.admin-root .pdf-message {
+  margin-top: 15px;
+  padding: 12px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+}
+.admin-root .pdf-message-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.admin-root .pdf-message-success {
+  background: #dcfce7;
+  color: #166534;
+}
+/* PDF UPLOAD */
+.admin-root .pdf-upload-area {
+  border: 2px dashed #dfcfc4;
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  background: #fffaf7;
+}
+.admin-root .pdf-upload-area input[type="file"] {
+  display: none;
+}
+.admin-root .pdf-upload-area label {
+  display: inline-block;
+  padding: 11px 20px;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid #ded3cb;
+  color: #5c463a;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-root .pdf-upload-area label:hover {
+  background: #fff1e6;
+}
+.admin-root .pdf-selected-file {
+  margin-top: 15px;
+  color: #49382f;
+  font-size: 14px;
+}
+.admin-root .pdf-upload-btn {
+  display: block;
+  margin: 18px auto 0;
+  padding: 11px 20px;
+  border: none;
+  border-radius: 8px;
+  background: #059669;
+  color: white;
+  font-weight: 600;
+  cursor: pointer;
+}
+.admin-root .pdf-upload-btn:hover {
+  background: #047857;
+}
+.admin-root .pdf-upload-message {
+  margin-top: 14px;
+  color: #166534;
+  font-size: 14px;
+}
+/* RESPONSIVE */
+@media (max-width: 800px) {
+.admin-root .pdf-exam-details {
+    grid-template-columns: repeat(2, 1fr);
+  }
+.admin-root .pdf-form-grid {
+    grid-template-columns: 1fr;
+  }
+.admin-root .pdf-page-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 15px;
+  }
+}
+@media (max-width: 500px) {
+.admin-root .pdf-exam-details {
+    grid-template-columns: 1fr;
+  }
+.admin-root .pdf-card {
+    padding: 18px;
+  }
+}
