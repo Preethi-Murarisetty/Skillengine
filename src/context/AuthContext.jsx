@@ -1,6 +1,7 @@
 import React, {
   createContext,
   useContext,
+  useRef,
   useState,
   useEffect,
 } from "react";
@@ -34,11 +35,15 @@ export const AuthProvider = ({ children }) => {
   });
 
   const [isLoading, setIsLoading] = useState(true);
+  const restoreStartedRef = useRef(false);
 
   // ============================================================
   // RESTORE AUTHENTICATION AFTER REFRESH
   // ============================================================
   useEffect(() => {
+    if (restoreStartedRef.current) return;
+    restoreStartedRef.current = true;
+
     const restoreAuthentication = async () => {
       console.log("🔄 Restoring authentication...");
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { getApiErrorMessage, verifyRegistrationOtp, resendRegistrationOtp } from '../../services/api';
@@ -25,6 +25,8 @@ const Register = () => {
   const [step, setStep] = useState('form'); // 'form' -> 'otp'
   const [otp, setOtp] = useState('');
   const [info, setInfo] = useState('');
+  const requestInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
   const { register } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -42,6 +44,11 @@ const Register = () => {
     'Cybersecurity', 'DevOps', 'Blockchain', 'IoT', 'Game Development',
     'Open Source', 'System Design', 'Database Management', 'UI/UX Design'
   ];
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   const lettersOnly = /^[A-Za-z ]*$/;
   const fullNamePattern = /^[A-Za-z. ]*$/;
@@ -110,20 +117,25 @@ const Register = () => {
       return;
     }
 
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
     setIsLoading(true);
     try {
       await register(formData);
       setInfo(`We sent a 6-digit verification code to ${formData.email}. It expires in 5 minutes.`);
       setStep('otp');
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      if (mountedRef.current) setError(getApiErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      requestInFlightRef.current = false;
+      if (mountedRef.current) setIsLoading(false);
     }
   };
 
   const handleVerify = async (e) => {
     e.preventDefault();
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
     setError('');
     setInfo('');
     setIsLoading(true);
@@ -136,13 +148,16 @@ const Register = () => {
         },
       });
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      if (mountedRef.current) setError(getApiErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      requestInFlightRef.current = false;
+      if (mountedRef.current) setIsLoading(false);
     }
   };
 
   const handleResend = async () => {
+    if (requestInFlightRef.current) return;
+    requestInFlightRef.current = true;
     setError('');
     setInfo('');
     setIsLoading(true);
@@ -150,9 +165,10 @@ const Register = () => {
       await resendRegistrationOtp(formData.email);
       setInfo('A new verification code has been sent.');
     } catch (err) {
-      setError(getApiErrorMessage(err));
+      if (mountedRef.current) setError(getApiErrorMessage(err));
     } finally {
-      setIsLoading(false);
+      requestInFlightRef.current = false;
+      if (mountedRef.current) setIsLoading(false);
     }
   };
 

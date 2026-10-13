@@ -1,0 +1,9 @@
+.dashboard-progress { display: grid; gap: 8px; }
+.dashboard-progress-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; color: #6e5c53; font-size: 0.76rem; }
+.dashboard-progress-heading strong { color: #42342e; font-size: 0.78rem; font-weight: 800; }
+.dashboard-progress-track { height: 9px; overflow: hidden; border-radius: 99px; background: #f1e7dd; }
+.dashboard-progress-fill { display: block; height: 100%; border-radius: inherit; transition: width 650ms cubic-bezier(.2,.75,.25,1); }
+.dashboard-progress-fill.tone-coral { background: linear-gradient(90deg, #c8482a, #e97947); }
+.dashboard-progress-fill.tone-green { background: linear-gradient(90deg, #54754c, #89a26b); }
+.dashboard-progress-fill.tone-gold { background: linear-gradient(90deg, #9b7127, #d6ac53); }
+@media (prefers-reduced-motion: reduce) { .dashboard-progress-fill { transition: none; } }

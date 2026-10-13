@@ -1,80 +1,111 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ArrowRight, BookOpenCheck, ClipboardCheck, LoaderCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
-import api from '../../services/api';
-import {
-  FaChartBar,
-  FaChartLine,
-  FaFileAlt,
-  FaLightbulb,
-  FaMicrophone,
-  FaPlay,
-  FaRegClock,
-  FaRobot,
-  FaStar,
-  FaTrophy,
-  FaUpload,
-} from 'react-icons/fa';
+import { useInterviewHistory } from '../../hooks/useInterviewHistory';
+import ProgressBar from '../common/ProgressBar';
+import { readUserProgress } from '../../utils/userProgress';
+import './DashboardOverview.css';
 
 const Welcome = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const [history, setHistory] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const { sessions: interviews, isLoading: interviewsLoading, error: interviewsError } = useInterviewHistory(user);
+  const [progressRevision, setProgressRevision] = useState(0);
+  const progress = useMemo(() => readUserProgress(user), [user, progressRevision]);
+  const latestAssessment = progress.assessments[0] ?? null;
+  const completedPractice = progress.practiceSessions.length;
+
   useEffect(() => {
-    api.get('/interviews')
-      .then((response) => {
-        if (response.data.success) setHistory(response.data.sessions || []);
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
+    const refreshProgress = () => setProgressRevision((revision) => revision + 1);
+    window.addEventListener('skillengine:progress-updated', refreshProgress);
+    window.addEventListener('storage', refreshProgress);
+    return () => {
+      window.removeEventListener('skillengine:progress-updated', refreshProgress);
+      window.removeEventListener('storage', refreshProgress);
+    };
   }, []);
 
-  const metrics = useMemo(() => {
-    const scores = history.map((session) => Number(session.overall_score) || 0);
-    const average = scores.length ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
-    const latest = scores[0] || 0;
-    const best = scores.length ? Math.max(...scores) : 0;
-    const answered = history.reduce((sum, session) => sum + (session.answered_questions || 0), 0);
-    const questions = history.reduce((sum, session) => sum + (session.total_questions || 0), 0);
-    const answerRate = questions ? (answered / questions) * 100 : 0;
-    const recommendedRate = history.length ? (history.filter((session) => session.recommended).length / history.length) * 100 : 0;
-    return { average, latest, best, answerRate, recommendedRate };
-  }, [history]);
-
-  const performanceBars = [
-    { label: 'Interview Score', value: metrics.latest * 10 },
-    { label: 'Answer Completion', value: metrics.answerRate },
-    { label: 'Recommended Rate', value: metrics.recommendedRate },
-    { label: 'Best Score', value: metrics.best * 10 },
-  ];
+  const displayName = user?.fullName || user?.full_name || user?.name || 'there';
+  const latestInterview = interviews.find((session) => Number.isFinite(Number(session.overall_score)));
+  const latestInterviewScore = latestInterview ? Number(latestInterview.overall_score) : null;
 
   return (
-    <main className="dashboard-main">
-          <section className="dashboard-welcome-banner"><div><span className="dashboard-overline">AI interview workspace</span><h1>Welcome back, {user?.fullName || 'there'}!</h1><p>Ready for your next AI interview?</p><button type="button" className="dashboard-orange-button" onClick={() => navigate('/resume')}>Start New Interview <FaPlay /></button></div><div className="dashboard-bot-illustration" aria-hidden="true"><FaRobot /><small>AI</small></div></section>
+    <main className="dashboard-main learning-dashboard">
+      <section className="learning-welcome">
+        <div>
+          <span className="learning-eyebrow">Your learning workspace</span>
+          <h1>Welcome back, {displayName}.</h1>
+          <p>Small, focused steps make strong preparation. Choose what you want to work on today.</p>
+        </div>
+        <span className="learning-welcome-mark" aria-hidden="true"><Sparkles size={24} /></span>
+      </section>
 
-          <section className="dashboard-stat-grid" aria-label="Interview statistics">
-            <StatCard icon={<FaChartLine />} label="Overall Score" value={`${metrics.latest.toFixed(1)}/10`} description="Your latest performance" />
-            <StatCard icon={<FaMicrophone />} label="Interviews Taken" value={history.length} description="Keep going!" />
-            <StatCard icon={<FaStar />} label="Average Score" value={`${metrics.average.toFixed(1)}/10`} description="Across all interviews" />
-            <StatCard icon={<FaTrophy />} label="Best Score" value={`${metrics.best.toFixed(1)}/10`} description="Your personal best" />
-          </section>
+      <section className={`learning-assessment-panel${latestAssessment ? ' is-complete' : ''}`} aria-labelledby="assessment-status-title">
+        <div className="learning-assessment-copy">
+          <span className="learning-eyebrow">Assessment</span>
+          <h2 id="assessment-status-title">{latestAssessment ? 'Assessment completed' : 'Your learning journey starts here.'}</h2>
+          <p>
+            {latestAssessment
+              ? 'Your latest result is ready. Review your score and keep building your skills with focused practice.'
+              : 'Take your first assessment to evaluate your current skills and track your progress. Open the assessment link provided by your instructor to read its instructions and begin.'}
+          </p>
+          {latestAssessment ? (
+            <div className="learning-latest-score">
+              <span>Latest score</span>
+              <strong>{Math.round(latestAssessment.percentage)}%</strong>
+            </div>
+          ) : (
+            <div className="learning-assessment-status">
+              <span className="learning-status-dot" /> No completed assessment is linked to this account yet
+            </div>
+          )}
+        </div>
+        <div className="learning-assessment-actions">
+          {latestAssessment && (
+            <div className="learning-assessment-progress">
+              <ProgressBar progress={latestAssessment.percentage} label="Latest assessment score" showPercentage />
+            </div>
+          )}
+          <button type="button" className="learning-primary-action" onClick={() => navigate('/assessments')}>
+            {latestAssessment ? 'Retake Assessment' : 'Start Assessment'} <ArrowRight size={17} aria-hidden="true" />
+          </button>
+          <button type="button" className="learning-secondary-action" onClick={() => navigate('/performance')}>
+            View Performance <ArrowRight size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </section>
 
-          <div className="dashboard-feature-grid">
-            <section className="dashboard-card performance-card"><PanelTitle icon={<FaChartBar />} title="Performance Overview" action="View Details" /><div className="performance-chart">{performanceBars.map((bar) => <div className="performance-column" key={bar.label}><div className="performance-value"><span style={{ height: `${Math.min(Math.max(bar.value, 0), 100)}%` }} /></div><strong>{bar.label}</strong><small>{Math.round(bar.value)}%</small></div>)}</div></section>
-            <section className="dashboard-card mock-interview-card"><div><span className="dashboard-card-icon"><FaMicrophone /></span><h2>AI Mock Interview</h2><p>Quiz with questions generated<br />from your resume.</p><button type="button" className="dashboard-orange-button" onClick={() => navigate('/resume')}>Start Interview <FaPlay /></button><button type="button" className="dashboard-light-button" onClick={() => navigate('/resume')}><FaUpload /> Upload New Resume</button></div><div className="mock-card-illustration"><FaFileAlt /><FaMicrophone /></div></section>
-          </div>
+      <section className="learning-summary-grid" aria-label="Learning summary">
+        <article className="learning-summary-card">
+          <span className="learning-summary-icon assessment"><ClipboardCheck size={19} /></span>
+          <div><span>Assessments</span><strong>{latestAssessment ? `${progress.assessments.length} completed` : 'Not started'}</strong></div>
+          <small>{latestAssessment ? latestAssessment.title : 'Open an invite link to begin'}</small>
+        </article>
+        <article className="learning-summary-card">
+          <span className="learning-summary-icon practice"><BookOpenCheck size={19} /></span>
+          <div><span>Practice sessions</span><strong>{completedPractice}</strong></div>
+          <small>{completedPractice ? 'Completed on this account' : 'Your completed quiz sessions will appear here'}</small>
+        </article>
+        <article className="learning-summary-card">
+          <span className="learning-summary-icon interview"><Sparkles size={19} /></span>
+          <div><span>AI interviews</span><strong>{interviewsLoading ? <LoaderCircle className="learning-inline-spinner" size={18} aria-label="Loading" /> : interviewsError ? 'Unavailable' : interviews.length}</strong></div>
+          <small>{interviewsError ? 'Could not load interview history' : latestInterviewScore === null ? 'Completed interview sessions' : `Latest score ${latestInterviewScore.toFixed(1)} / 10`}</small>
+        </article>
+      </section>
 
-          <div className="dashboard-lower-grid">
-            <section className="dashboard-card recent-card"><PanelTitle icon={<FaRegClock />} title="Recent Interviews" action="View All" /><div className="interview-table"><div className="interview-table-head"><span>Interview</span><span>Role</span><span>Date</span><span>Score</span><span>Status</span><span /></div>{isLoading ? <div className="dashboard-empty">Loading interview history...</div> : history.length ? history.slice(0, 4).map((session, index) => <div className="interview-table-row" key={`${session.session_id || 'session'}-${index}`}><span>{session.session_id || `Interview ${history.length - index}`}</span><span>Technical</span><span>{session.interview_date ? new Date(session.interview_date).toLocaleDateString() : 'N/A'}</span><span className="table-score">{(session.overall_score || 0).toFixed(1)}/10</span><span className="table-status">{session.recommended ? 'Completed' : 'Needs review'}</span><button type="button" onClick={() => navigate('/report')}>View Report <FaPlay /></button></div>) : <div className="dashboard-empty">No interviews yet. Start your first one!</div>}</div></section>
-            <section className="dashboard-card recommendations-card"><PanelTitle icon={<FaLightbulb />} title="AI Recommendations" action="" /><Recommendation icon={<FaChartBar />} text="Improve technical skills" detail="Take more quizzes related to your role." /><Recommendation icon={<FaMicrophone />} text="Improve communication" detail="Explain your projects clearly and confidently." /><Recommendation icon={<FaStar />} text="Build interview confidence" detail="Keep taking quizzes to improve your performance." /></section>
-          </div>
+      <section className="learning-practice-panel">
+        <div className="learning-practice-icon"><BookOpenCheck size={20} /></div>
+        <div className="learning-practice-copy">
+          <h2>Practice at your own pace</h2>
+          <p>Choose an untimed quiz category, work through questions, and review your score when you finish.</p>
+        </div>
+        <button type="button" className="learning-secondary-action" onClick={() => navigate('/practice')}>
+          Start Practising <ArrowRight size={16} aria-hidden="true" />
+        </button>
+      </section>
     </main>
   );
 };
-
-const StatCard = ({ icon, label, value, description }) => <div className="dashboard-stat-card"><span className="dashboard-stat-icon">{icon}</span><div><span className="dashboard-stat-label">{label}</span><strong>{value}</strong><small>{description}</small></div></div>;
-const PanelTitle = ({ icon, title, action }) => <div className="dashboard-panel-title"><h2><span>{icon}</span>{title}</h2>{action && <button type="button">{action} <FaPlay /></button>}</div>;
-const Recommendation = ({ icon, text, detail }) => <div className="recommendation-row"><span>{icon}</span><div><strong>{text}</strong><p>{detail}</p></div><FaPlay /></div>;
 
 export default Welcome;

@@ -34,7 +34,8 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showRegistrationPrompt, setShowRegistrationPrompt] = useState(false);
   const dialogRef = useRef(null);
-  const previousFocusRef = useRef(null);
+  const requestInFlightRef = useRef(false);
+  const mountedRef = useRef(false);
 
   const { login } = useAuth();
   const navigate = useNavigate();
@@ -53,12 +54,13 @@ const Login = () => {
   };
 
   useEffect(() => {
-    previousFocusRef.current = document.activeElement;
+    mountedRef.current = true;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     dialogRef.current?.focus();
 
     return () => {
+      mountedRef.current = false;
       document.body.style.overflow = previousOverflow;
     };
   }, []);
@@ -130,7 +132,9 @@ const Login = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (requestInFlightRef.current) return;
 
+    requestInFlightRef.current = true;
     setError('');
     setIsLoading(true);
 
@@ -145,6 +149,7 @@ const Login = () => {
           : '/upload-resume'
       );
     } catch (err) {
+      if (!mountedRef.current) return;
       const backendMessage = getBackendLoginMessage(err);
 
       if (isUnregisteredAccountError(backendMessage)) {
@@ -160,7 +165,8 @@ const Login = () => {
         setError(backendMessage || getApiErrorMessage(err));
       }
     } finally {
-      setIsLoading(false);
+      requestInFlightRef.current = false;
+      if (mountedRef.current) setIsLoading(false);
     }
   };
 

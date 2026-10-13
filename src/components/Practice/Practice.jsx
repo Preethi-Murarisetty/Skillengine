@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { FaArrowLeft, FaBookOpen, FaBrain, FaCalculator, FaCheckCircle, FaPlay, FaPuzzlePiece, FaRedo } from 'react-icons/fa';
 import ProgressBar from '../common/ProgressBar';
+import { useAuth } from '../../hooks/useAuth';
+import { recordPracticeSession } from '../../utils/userProgress';
 import QuestionCard from '../Phase1/QuestionCard';
 import Timer from '../Phase1/Timer';
 import { aptitudeQuestions, communicationQuestions, phase1Config, reasoningQuestions, selectQuestions } from '../../data/phase1Questions';
@@ -14,6 +16,7 @@ const practiceOptions = [
 const difficultyLevels = ['Easy', 'Medium', 'Hard'];
 
 const Practice = () => {
+  const { user } = useAuth();
   const [selectedDifficulty, setSelectedDifficulty] = useState('Medium');
   const [activeCategory, setActiveCategory] = useState(null);
   const [questions, setQuestions] = useState([]);
@@ -41,7 +44,15 @@ const Practice = () => {
       return total + (question.section === 'communication' ? answer.score : answer === question.correctAnswer ? 1 : 0);
     }, 0);
     const maxScore = activeCategory.key === 'verbal' ? questions.length * 4 : questions.length;
-    setSessionResult({ score, maxScore, answered, percentage: maxScore ? (score / maxScore) * 100 : 0 });
+    const result = { score, maxScore, answered, percentage: maxScore ? (score / maxScore) * 100 : 0 };
+    recordPracticeSession(user, {
+      category: activeCategory.title,
+      score,
+      maxScore,
+      answered,
+      percentage: result.percentage,
+    });
+    setSessionResult(result);
   };
 
   const handleAnswer = (answer) => {

@@ -7,6 +7,7 @@ import {
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from 'react-router-dom';
 
 import { AuthProvider } from './context/AuthContext';
@@ -18,6 +19,7 @@ import Register from './components/Auth/Register';
 import LandingPage from './components/LandingPage';
 
 import Welcome from './components/Dashboard/Welcome';
+import Performance from './components/Dashboard/Performance';
 import UserProfile from './components/Profile/UserProfile';
 
 import ResumeUpload from './components/Interview/ResumeUpload';
@@ -86,8 +88,9 @@ const ProtectedRoute = ({ children }) => {
   return isAuthenticated ? children : <Navigate to="/login" replace />;
 };
 
-const PublicHome = () => {
+const PublicShell = () => {
   const { isAuthenticated, isLoading } = useAuth();
+  const location = useLocation();
 
   if (isLoading) {
     return (
@@ -97,9 +100,18 @@ const PublicHome = () => {
     );
   }
 
-  return isAuthenticated
-    ? <AppLayout><Welcome /></AppLayout>
-    : <LandingPage />;
+  if (isAuthenticated) {
+    return location.pathname === '/login'
+      ? <Navigate to="/" replace />
+      : <AppLayout><Welcome /></AppLayout>;
+  }
+
+  return (
+    <>
+      <LandingPage />
+      {location.pathname === '/login' && <Login />}
+    </>
+  );
 };
 
 // ─── Main App Component ─────────────────────────────────────────────────
@@ -114,20 +126,10 @@ function App() {
 
             {/* ─── Public Routes ────────────────────────────────────── */}
 
-            <Route
-              path="/login"
-              element={
-                <>
-                  <LandingPage />
-                  <Login />
-                </>
-              }
-            />
-
-            <Route
-              path="/"
-              element={<PublicHome />}
-            />
+            <Route path="/" element={<PublicShell />}>
+              <Route index element={null} />
+              <Route path="login" element={null} />
+            </Route>
 
             <Route
               path="/register"
@@ -185,6 +187,11 @@ function App() {
               <Route
                 path="/dashboard"
                 element={<Welcome />}
+              />
+
+              <Route
+                path="/performance"
+                element={<Performance />}
               />
 
               {/* Profile */}

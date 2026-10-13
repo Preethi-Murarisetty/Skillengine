@@ -5,6 +5,8 @@ import Brand from '../components/assessment/Brand';
 import { useAssessment } from '../hooks/useAssessment';
 import { getAssessmentResults, type FullAssessmentResult } from '../api/assessmentApi';
 import { getApiErrorMessage, startAIInterview } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
+import { recordAssessmentResult } from '../../utils/userProgress';
 
 const fmt = (iso?: string) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -18,6 +20,7 @@ const Row = ({ label, value }: { label: string; value: React.ReactNode }) => (
 
 export default function AssessmentCompleted() {
   const { state } = useAssessment();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const [data, setData] = useState<FullAssessmentResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,10 +30,38 @@ export default function AssessmentCompleted() {
   useEffect(() => {
     if (!state.assessmentId) { setLoading(false); return; }
     getAssessmentResults(state.assessmentId)
-      .then(setData)
+      .then((result) => {
+        const returnedAttempts = result?.history?.length ? result.history : result ? [result] : [];
+        const userEmail = String(user?.email || '').trim().toLowerCase();
+        const ownAttempts = returnedAttempts.filter((attempt) =>
+          userEmail && String(attempt.candidate?.email || '').trim().toLowerCase() === userEmail,
+        );
+        const latestOwnAttempt = ownAttempts[0] || null;
+        setData(latestOwnAttempt);
+
+        if (state.status === 'COMPLETED') {
+          ownAttempts.forEach((attempt) => {
+            const score = attempt.result;
+            if (!score) return;
+            recordAssessmentResult(user, attempt.candidate?.email, {
+              assessmentId: attempt.assessment?.id || state.assessmentId,
+              attemptId: attempt.attempt?.id || '',
+              attemptNumber: attempt.attempt?.attempt_number,
+              candidateId: attempt.candidate?.id,
+              title: attempt.assessment?.title || state.assessment?.title || 'Assessment',
+              score: score.score,
+              maxScore: score.max_score,
+              percentage: score.percentage,
+              status: score.result || attempt.attempt?.status || 'Completed',
+              submittedAt: attempt.attempt?.submitted_at,
+              sections: attempt.sections || [],
+            });
+          });
+        }
+      })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [state.assessmentId]);
+  }, [state.assessmentId, state.attemptId, state.assessment?.title, state.status, user]);
 
   const handleStartInterview = async () => {
     if (startingInterview || state.status !== 'COMPLETED' || !state.assessmentId) return;
@@ -207,9 +238,9 @@ export default function AssessmentCompleted() {
                   <Row label="Passing %" value={`${data.result?.passing_percentage ?? state.assessment?.passing_percentage}%`} />
                 )}
                 {data.result && <>
-                  <Row label="Correct" value={data.result.correct_count} />
-                  <Row label="Wrong" value={data.result.wrong_count} />
-                  <Row label="Unanswered" value={data.result.unanswered_count} />
+                  {data.result.correct_count !== undefined && <Row label="Correct" value={data.result.correct_count} />}
+                  {data.result.wrong_count !== undefined && <Row label="Wrong" value={data.result.wrong_count} />}
+                  {data.result.unanswered_count !== undefined && <Row label="Unanswered" value={data.result.unanswered_count} />}
                 </>}
                 {fallback?.message && <p className="mt-2 text-sm text-ink-soft">{fallback.message}</p>}
               </div>
@@ -230,17 +261,19 @@ export default function AssessmentCompleted() {
                           <span className="text-xs text-ink-soft uppercase">{s.section_type}</span>
                         </div>
                         {/* Score bar */}
-                        <div className="h-2 w-full rounded-full bg-stone-200 mb-3">
-                          <div
-                            className="h-2 rounded-full bg-brand"
-                            style={{ width: `${s.max_score > 0 ? (s.score / s.max_score) * 100 : 0}%` }}
-                          />
-                        </div>
-                        <Row label="Score" value={`${s.score} / ${s.max_score}`} />
-                        <Row label="Percentage" value={`${s.percentage}%`} />
-                        <Row label="Correct" value={s.correct_count} />
-                        <Row label="Wrong" value={s.wrong_count} />
-                        <Row label="Unanswered" value={s.unanswered_count} />
+                        {s.score !== undefined && s.max_score !== undefined && s.max_score > 0 && (
+                          <div className="h-2 w-full rounded-full bg-stone-200 mb-3">
+                            <div
+                              className="h-2 rounded-full bg-brand"
+                              style={{ width: `${Math.min(100, Math.max(0, (s.score / s.max_score) * 100))}%` }}
+                            />
+                          </div>
+                        )}
+                        {s.score !== undefined && s.max_score !== undefined && <Row label="Score" value={`${s.score} / ${s.max_score}`} />}
+                        {s.percentage !== undefined && <Row label="Percentage" value={`${s.percentage}%`} />}
+                        {s.correct_count !== undefined && <Row label="Correct" value={s.correct_count} />}
+                        {s.wrong_count !== undefined && <Row label="Wrong" value={s.wrong_count} />}
+                        {s.unanswered_count !== undefined && <Row label="Unanswered" value={s.unanswered_count} />}
                       </div>
                     ))}
                 </div>

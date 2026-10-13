@@ -2,6 +2,7 @@
 import { useState, useContext } from 'react';
 import { AuthContext } from '../context/AuthContext';
 import api from '../services/api';
+import { invalidateUserInterviewHistory } from '../services/interviewHistory';
 
 export const useInterview = () => {
   const authContext = useContext(AuthContext);
@@ -219,6 +220,8 @@ export const useInterview = () => {
       // Keep the local report usable even if persistence is unavailable.
       try {
         await api.post('/interviews', savePayload);
+        invalidateUserInterviewHistory(user);
+        window.dispatchEvent(new Event('skillengine:interviews-updated'));
       } catch (saveError) {
         console.error('Interview result save error:', saveError);
       }

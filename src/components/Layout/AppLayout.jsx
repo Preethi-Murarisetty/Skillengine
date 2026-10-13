@@ -29,7 +29,7 @@ const practiceItems = [
   { label: 'Resume', icon: <FaFileAlt />, path: '/resume' },
   { label: 'Interviews', icon: <FaMicrophone />, path: '/interviews' },
   { label: 'Coding', icon: <FaChartLine />, path: '/upcoming-assignment' },
-  { label: 'Performance', icon: <FaChartLine />, path: '/report' },
+  { label: 'Performance', icon: <FaChartLine />, path: '/performance' },
 ];
 
 // Assessment has two sections: MCQ & Coding (existing /assessments page)
@@ -60,14 +60,15 @@ const isPracticeItemActive = (label, pathname) => {
   if (label === 'Resume') return pathname === '/resume' || pathname === '/intro' || pathname === '/upload-resume';
   if (label === 'Interviews') return pathname === '/interviews' || pathname === '/interview' || pathname === '/interview/questions';
   if (label === 'Coding') return pathname === '/upcoming-assignment';
-  if (label === 'Performance') return pathname === '/report' || pathname === '/interview/report';
+  if (label === 'Performance') return pathname === '/performance';
   return false;
 };
 
 const pageNames = [
   { match: (path) => path === '/' || path === '/dashboard', name: 'Overview' },
   { match: (path) => isQuizPath(path), name: 'Quiz' },
-  { match: (path) => path === '/report' || path === '/interview/report', name: 'Reports' },
+  { match: (path) => path === '/performance', name: 'Performance' },
+  { match: (path) => path === '/report' || path === '/interview/report', name: 'Interview Report' },
   { match: (path) => path === '/interviews' || path === '/interview' || path === '/interview/questions', name: 'Interviews' },
   { match: (path) => path === '/upcoming-assignment', name: 'Coding' },
   { match: (path) => path === '/resume' || path === '/intro' || path === '/upload-resume', name: 'Resume' },

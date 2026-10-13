@@ -748,14 +748,15 @@ export interface FullAssessmentResult {
   candidate?: { id?: string; name?: string; email?: string };
   attempt?: { id?: string; attempt_number?: number; status?: string; started_at?: string; submitted_at?: string };
   result?: {
-    score: number; max_score: number; percentage: number; passing_percentage: number;
-    result: string; correct_count: number; wrong_count: number; unanswered_count: number;
+    score?: number; max_score?: number; percentage?: number; passing_percentage?: number;
+    result: string; correct_count?: number; wrong_count?: number; unanswered_count?: number;
   };
   sections?: Array<{
     section_id: string; section_name: string; section_type: string; sequence: number;
-    score: number; max_score: number; percentage: number;
-    correct_count: number; wrong_count: number; unanswered_count: number;
+    score?: number; max_score?: number; percentage?: number;
+    correct_count?: number; wrong_count?: number; unanswered_count?: number;
   }>;
+  history?: FullAssessmentResult[];
 }
 
 /**
@@ -774,66 +775,95 @@ export const getAssessmentResults = async (
     const resultEntries = Array.isArray(body.results)
       ? body.results.filter(isRec)
       : [];
-    const entry = candidateEntries[0] ?? resultEntries[0] ?? body;
-    const asmData = isRec(body.assessment)
-      ? body.assessment
-      : isRec(entry.assessment)
-        ? entry.assessment
-        : undefined;
-    const candData = isRec(entry.candidate) ? entry.candidate : undefined;
-    const attData = isRec(entry.attempt) ? entry.attempt : undefined;
-    const resData = isRec(entry.result) ? entry.result : undefined;
-    const sections = Array.isArray(entry.sections)
-      ? entry.sections.filter(isRec).map((s, i) => {
-          const score = num(s.score) ?? 0;
-          const maxScore = num(s.max_score ?? s.total_marks) ?? 0;
+    const entries = resultEntries.length
+      ? resultEntries
+      : candidateEntries.length
+        ? candidateEntries
+        : [body];
+
+    const normalizeEntry = (entry: Record<string, unknown>): FullAssessmentResult => {
+      const asmData = isRec(body.assessment)
+        ? body.assessment
+        : isRec(entry.assessment)
+          ? entry.assessment
+          : undefined;
+      const candData = isRec(entry.candidate) ? entry.candidate : undefined;
+      const attData = isRec(entry.attempt) ? entry.attempt : undefined;
+      const resData = isRec(entry.result) ? entry.result : undefined;
+      const sections = Array.isArray(entry.sections)
+        ? entry.sections.filter(isRec).map((s, i) => {
+          const score = num(s.score);
+          const maxScore = num(s.max_score ?? s.total_marks);
+          const correctCount = num(s.correct_count);
+          const wrongCount = num(s.wrong_count);
+          const unansweredCount = num(s.unanswered_count);
           return {
             section_id: str(s.section_id ?? s.id, `${num(s.sequence) ?? i + 1}-${str(s.section_name ?? s.name, 'section')}`),
             section_name: str(s.section_name ?? s.name, `Section ${i + 1}`),
-            section_type: str(s.section_type ?? s.type, 'mcq'),
+            section_type: str(s.section_type ?? s.type),
             sequence: num(s.sequence) ?? i + 1,
             score,
             max_score: maxScore,
-            percentage: num(s.percentage) ?? (maxScore > 0 ? (score / maxScore) * 100 : 0),
-            correct_count: num(s.correct_count) ?? 0,
-            wrong_count: num(s.wrong_count) ?? 0,
-            unanswered_count: num(s.unanswered_count) ?? 0,
+            percentage: num(s.percentage) ?? (maxScore !== undefined && maxScore > 0 && score !== undefined ? (score / maxScore) * 100 : undefined),
+            correct_count: correctCount,
+            wrong_count: wrongCount,
+            unanswered_count: unansweredCount,
           };
         })
-      : undefined;
-    const score = num(resData?.score ?? resData?.total_score ?? resData?.obtained_marks);
-    const maxScore = num(resData?.max_score ?? resData?.total_marks);
+        : undefined;
+      const score = num(resData?.score ?? resData?.total_score ?? resData?.obtained_marks);
+      const maxScore = num(resData?.max_score ?? resData?.total_marks);
+      return {
+        assessment: asmData ? {
+          id: str(asmData.id ?? asmData.assessment_id) || undefined,
+          title: str(asmData.title) || undefined,
+          description: str(asmData.description) || undefined,
+          passing_percentage: num(asmData.passing_percentage),
+          duration_seconds: num(asmData.duration_seconds ?? (num(asmData.duration_minutes) !== undefined ? Number(asmData.duration_minutes) * 60 : undefined)),
+        } : undefined,
+        candidate: candData ? {
+          id: str(candData.id ?? candData.candidate_id) || undefined,
+          name: str(candData.name ?? candData.full_name) || undefined,
+          email: str(candData.email) || undefined,
+        } : undefined,
+        attempt: attData ? {
+          id: str(attData.id ?? attData.attempt_id) || undefined,
+          attempt_number: num(attData.attempt_number),
+          status: str(attData.status) || undefined,
+          started_at: str(attData.started_at) || undefined,
+          submitted_at: str(attData.submitted_at ?? attData.completed_at) || undefined,
+        } : undefined,
+        result: resData ? {
+          score,
+          max_score: maxScore,
+          percentage: num(resData.percentage) ?? (maxScore !== undefined && maxScore > 0 && score !== undefined ? (score / maxScore) * 100 : undefined),
+          passing_percentage: num(resData.passing_percentage ?? asmData?.passing_percentage),
+          result: str(resData.result ?? resData.result_status, ''),
+          correct_count: num(resData.correct_count) ?? (sections?.some((section) => section.correct_count !== undefined) ? sections.reduce((sum, section) => sum + (section.correct_count || 0), 0) : undefined),
+          wrong_count: num(resData.wrong_count) ?? (sections?.some((section) => section.wrong_count !== undefined) ? sections.reduce((sum, section) => sum + (section.wrong_count || 0), 0) : undefined),
+          unanswered_count: num(resData.unanswered_count) ?? (sections?.some((section) => section.unanswered_count !== undefined) ? sections.reduce((sum, section) => sum + (section.unanswered_count || 0), 0) : undefined),
+        } : undefined,
+        sections,
+      };
+    };
+
+    const normalizedHistory = entries
+      .map(normalizeEntry)
+      .filter((entry) => {
+        const status = String(entry.attempt?.status || '').trim().toLowerCase();
+        return Boolean(entry.result) && !['cancelled', 'canceled', 'incomplete', 'in_progress', 'started', 'expired', 'invalid'].includes(status);
+      });
+    normalizedHistory.sort((left, right) => {
+      const leftTime = Date.parse(left.attempt?.submitted_at || left.attempt?.started_at || '');
+      const rightTime = Date.parse(right.attempt?.submitted_at || right.attempt?.started_at || '');
+      if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) return rightTime - leftTime;
+      return (right.attempt?.attempt_number ?? -1) - (left.attempt?.attempt_number ?? -1);
+    });
+
+    const normalizedLatest = normalizedHistory[0] ?? normalizeEntry(body);
     return {
-      assessment: asmData ? {
-        id: str(asmData.id ?? asmData.assessment_id) || undefined,
-        title: str(asmData.title) || undefined,
-        description: str(asmData.description) || undefined,
-        passing_percentage: num(asmData.passing_percentage),
-        duration_seconds: num(asmData.duration_seconds ?? (num(asmData.duration_minutes) !== undefined ? Number(asmData.duration_minutes) * 60 : undefined)),
-      } : undefined,
-      candidate: candData ? {
-        id: str(candData.id ?? candData.candidate_id) || undefined,
-        name: str(candData.name ?? candData.full_name) || undefined,
-        email: str(candData.email) || undefined,
-      } : undefined,
-      attempt: attData ? {
-        id: str(attData.id ?? attData.attempt_id) || undefined,
-        attempt_number: num(attData.attempt_number),
-        status: str(attData.status) || undefined,
-        started_at: str(attData.started_at) || undefined,
-        submitted_at: str(attData.submitted_at ?? attData.completed_at) || undefined,
-      } : undefined,
-      result: resData ? {
-        score: score ?? 0,
-        max_score: maxScore ?? 0,
-        percentage: num(resData.percentage) ?? (maxScore && score !== undefined ? (score / maxScore) * 100 : 0),
-        passing_percentage: num(resData.passing_percentage ?? asmData?.passing_percentage) ?? 0,
-        result: str(resData.result ?? resData.result_status, ''),
-        correct_count: num(resData.correct_count) ?? sections?.reduce((sum, section) => sum + section.correct_count, 0) ?? 0,
-        wrong_count: num(resData.wrong_count) ?? sections?.reduce((sum, section) => sum + section.wrong_count, 0) ?? 0,
-        unanswered_count: num(resData.unanswered_count) ?? sections?.reduce((sum, section) => sum + section.unanswered_count, 0) ?? 0,
-      } : undefined,
-      sections,
+      ...normalizedLatest,
+      history: normalizedHistory.length ? normalizedHistory : [normalizedLatest],
     };
   } catch (e: unknown) {
     if ((e as { response?: { status?: number } }).response?.status === 404) return null;
