@@ -202,7 +202,12 @@ export function useAssessment() {
 
   const persistCode = useCallback((q: Question, code: string) => {
     if (q.kind !== 'coding') return;
-    saveCodingSubmission(state.token, state.assessmentId, q.id, code, q.language).catch(() => undefined);
+    if (!q.attemptQuestionId) {
+      console.error('Cannot save coding submission because attempt_question_id is missing.');
+      return;
+    }
+    saveCodingSubmission(state.token, state.assessmentId, q.id, q.attemptQuestionId, code, q.language)
+      .catch((error: unknown) => console.error('Coding submission API error:', error));
   }, [state.token, state.assessmentId]);
 
   const finishSection = useCallback(() => {
@@ -258,10 +263,28 @@ export function useAssessment() {
       if (hasCodingQuestions) {
         const codingFlush = allQuestions
           .filter((question) => question.kind === 'coding' && state.code[question.id])
-          .map((question) => question.kind === 'coding'
-            ? saveCodingSubmission(state.token, state.assessmentId, question.id, state.code[question.id], question.language)
-            : Promise.resolve());
-        await Promise.allSettled(codingFlush);
+          .map((question) => {
+            if (question.kind !== 'coding') return Promise.resolve();
+            if (!question.attemptQuestionId) {
+              return Promise.reject(new Error(
+                `Cannot save coding question ${question.id}: attempt_question_id is missing.`,
+              ));
+            }
+            return saveCodingSubmission(
+              state.token,
+              state.assessmentId,
+              question.id,
+              question.attemptQuestionId,
+              state.code[question.id],
+              question.language,
+            );
+          });
+        const codingResults = await Promise.allSettled(codingFlush);
+        codingResults.forEach((result) => {
+          if (result.status === 'rejected') {
+            console.error('Coding submission API error:', result.reason);
+          }
+        });
       }
 
       // Evaluate MCQ before finalization and retain its response separately.
@@ -276,14 +299,12 @@ export function useAssessment() {
         }
       }
 
-      // Even if MCQ evaluation fails, still finalize coding/mixed attempts.
-      const endAssessmentResponse = hasCodingQuestions
-        ? await endAssessment(state.token, {
-            assessmentId: state.assessmentId,
-            attemptId: state.attemptId,
-            answers,
-          })
-        : null;
+      // evaluateQuiz completes the MCQ section; /end finalizes the whole attempt.
+      const endAssessmentResponse = await endAssessment(state.token, {
+        assessmentId: state.assessmentId,
+        attemptId: state.attemptId,
+        answers,
+      });
       const result = endAssessmentResponse?.normalized ?? quizEvaluation?.normalized ?? null;
 
       if (!result) throw new Error('Assessment submission returned no result.');

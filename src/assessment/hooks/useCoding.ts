@@ -6,6 +6,7 @@ import type { CodingQuestion, CodingSubmission } from '../types/assessment';
 
 const toExecStatus = (s: string): CodingSubmission['status'] => {
   const l = s.toLowerCase();
+  if (l.includes('submit') || ['success', 'ok', 'completed'].includes(l)) return 'submitted';
   if (l.includes('accept')) return 'accepted';
   if (l.includes('wrong')) return 'wrong_answer';
   if (l.includes('compile')) return 'compilation_error';
@@ -15,7 +16,7 @@ const toExecStatus = (s: string): CodingSubmission['status'] => {
 };
 
 export function useCoding(q: CodingQuestion) {
-  const { state, patch, setCode, persistCode } = useAssessment();
+  const { state, patch, setCode } = useAssessment();
   const [busy, setBusy] = useState<'run' | 'submit' | null>(null);
   const result = state.submissions[q.id] ?? null;
   const code = state.code[q.id] ?? q.starter_code;
@@ -99,13 +100,12 @@ export function useCoding(q: CodingQuestion) {
         passed: r.passed ?? results.filter((x) => x.passed).length,
         total: r.total ?? results.length,
       });
-      persistCode(q, code);
     } catch (e: unknown) {
       put({ questionId: q.id, mode: 'submit', status: 'error', message: (e as Error).message ?? 'Submission failed', results: [], passed: 0, total: 0 });
     } finally {
       setBusy(null);
     }
-  }, [q, code, state.assessmentId, state.attemptId, put, persistCode]);
+  }, [q, code, state.assessmentId, state.attemptId, put]);
 
   return { code, setCode: (c: string) => setCode(q.id, c), result, busy, run, submit };
 }

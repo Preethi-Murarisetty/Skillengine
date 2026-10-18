@@ -2,6 +2,7 @@ import { api } from './axios';
 import { isConfigured, resolve } from './endpoints';
 import type { CodingQuestion, MCQQuestion, Question, TestCase } from '../types/assessment';
 import { isRec, num, safeImageUrl, str } from '../utils/sanitize';
+import { languageId } from '../services/judge0Service';
 
 const toOptions = (v: unknown): MCQQuestion['options'] => {
   if (!Array.isArray(v)) return [];
@@ -102,8 +103,27 @@ export const fetchQuestions = async (
 
 export const canFetchQuestions = () => isConfigured('QUESTIONS');
 
-export const saveCodingSubmission = async (token: string, assessmentId: string, questionId: string, code: string, language: string) => {
-  if (!isConfigured('SAVE_CODING')) return;
+export const saveCodingSubmission = async (
+  token: string,
+  assessmentId: string,
+  questionId: string,
+  attemptQuestionId: string,
+  code: string,
+  language: string,
+) => {
+  if (!attemptQuestionId.trim()) {
+    throw new Error('Cannot save coding submission because attempt_question_id is missing.');
+  }
   const ep = resolve('SAVE_CODING', { token, assessmentId, questionId });
-  await api.request({ method: ep.method === 'get' ? 'post' : ep.method, url: ep.url, data: { question_id: questionId, source_code: code, language } });
+  await api.request({
+    method: ep.method === 'get' ? 'post' : ep.method,
+    url: ep.url,
+    data: {
+      question_id: questionId,
+      attempt_question_id: attemptQuestionId,
+      source_code: code,
+      language,
+      language_id: languageId(language),
+    },
+  });
 };

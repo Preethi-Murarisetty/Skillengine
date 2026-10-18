@@ -2,7 +2,7 @@ import { CheckCircle2, Clock, Loader2, XCircle } from 'lucide-react';
 import type { CodingSubmission, ExecStatus } from '../../types/assessment';
 
 const LABEL: Record<ExecStatus, string> = {
-  idle: 'Not run', running: 'Running', accepted: 'Accepted', wrong_answer: 'Wrong Answer',
+  idle: 'Not run', running: 'Running', submitted: 'Submitted', accepted: 'Accepted', wrong_answer: 'Wrong Answer',
   compilation_error: 'Compilation Error', runtime_error: 'Runtime Error', time_limit: 'Time Limit Exceeded', error: 'Execution Error',
 };
 
@@ -12,18 +12,19 @@ export default function TestResults({ result }: { result: CodingSubmission | nul
     return <p className="flex items-center gap-2 text-sm font-semibold text-amber-700" role="status"><Loader2 size={16} className="animate-spin" aria-hidden />⏳ Running</p>;
 
   const ok = result.status === 'accepted';
+  const submitted = result.status === 'submitted';
   const isSubmit = result.mode === 'submit';
   return (
     <section aria-label="Test results" aria-live="polite" className="space-y-3">
-      <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-3 py-2 text-sm font-semibold ${ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
-        {ok ? <CheckCircle2 size={16} aria-hidden /> : <XCircle size={16} aria-hidden />}
-        <span>{ok ? '✓' : '✗'} {LABEL[result.status]}</span>
+      <div className={`flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg px-3 py-2 text-sm font-semibold ${ok ? 'bg-green-50 text-green-800' : submitted ? 'bg-blue-50 text-blue-800' : 'bg-red-50 text-red-800'}`}>
+        {ok || submitted ? <CheckCircle2 size={16} aria-hidden /> : <XCircle size={16} aria-hidden />}
+        <span>{ok || submitted ? '✓' : '✗'} {LABEL[result.status]}</span>
         {result.timeSec !== undefined && <span className="flex items-center gap-1 font-normal"><Clock size={14} aria-hidden />Execution Time: {result.timeSec}s</span>}
         {result.memoryKb !== undefined && <span className="font-normal">Memory Used: {Math.round(result.memoryKb)} KB</span>}
       </div>
-      {result.message && <p className="text-sm text-red-700">{result.message}</p>}
+      {result.message && <p className={`text-sm ${submitted ? 'text-blue-700' : 'text-red-700'}`}>{result.message}</p>}
 
-      {isSubmit && (
+      {isSubmit && !submitted && (
         <>
           <p className="text-sm font-semibold">
             Test Cases Passed: {result.passed} / {result.total}

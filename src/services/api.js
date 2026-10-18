@@ -474,7 +474,6 @@ const authApi = axios.create({
   baseURL:
     `${NODE_API_URL}/api/users`,
 
-  timeout: 30000,
 
   headers: {
     'Content-Type': 'application/json',

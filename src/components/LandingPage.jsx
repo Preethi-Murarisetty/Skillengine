@@ -177,53 +177,49 @@ const LandingPage = () => {
               </div>
             </div>
 
-            <div className="landing-visual" aria-label="Illustration of an interview practice workspace" data-reveal>
-              <div className="landing-visual-orbit landing-orbit-one" />
-              <div className="landing-visual-orbit landing-orbit-two" />
-              <div className="landing-float-tag landing-resume-tag">
-                <span className="landing-tag-icon"><FileSearch size={17} /></span>
-                <span><strong>Resume review</strong><small>Skills in focus</small></span>
-                <Check size={16} className="landing-tag-check" />
-              </div>
-              <div className="landing-workspace">
-                <div className="landing-workspace-top">
-                  <div className="landing-workspace-brand"><span className="landing-mini-mark">S</span> Interview practice</div>
-                  <span className="landing-live-pill"><i /> Session preview</span>
-                </div>
-                <div className="landing-workspace-content">
-                  <div className="landing-workspace-aside">
-                    <span className="landing-aside-label">YOUR SESSION</span>
-                    <div className="landing-session-step active"><span><Mic2 size={15} /></span> Interview</div>
-                    <div className="landing-session-step"><span><Target size={15} /></span> Skill focus</div>
-                    <div className="landing-session-step"><span><BarChart3 size={15} /></span> Review</div>
-                    <div className="landing-aside-divider" />
-                    <span className="landing-aside-label">TOPIC</span>
-                    <div className="landing-topic-chip">Technical</div>
-                  </div>
-                  <div className="landing-question-panel">
-                    <div className="landing-question-meta"><span>QUESTION 01</span><span>◷ &nbsp;Take your time</span></div>
-                    <div className="landing-interviewer-row">
-                      <div className="landing-interviewer-avatar"><BrainCircuit size={21} /></div>
-                      <div><strong>AI Interviewer</strong><span>Ready when you are</span></div>
-                    </div>
-                    <p className="landing-question-text">How do you approach breaking down a complex technical problem?</p>
-                    <div className="landing-waveform" aria-hidden="true">
-                      {[12, 20, 28, 17, 34, 24, 42, 20, 31, 15, 37, 24, 14, 30, 19, 38, 24, 13, 29, 18, 34, 22, 13, 26].map((height, index) => (
-                        <i key={index} style={{ '--wave-height': `${height}px`, '--wave-delay': `${index * 45}ms` }} />
-                      ))}
-                    </div>
-                    <div className="landing-record-row"><span className="landing-record-dot" /> Voice answer ready <span className="landing-record-time">00:00</span></div>
-                    <button className="landing-preview-button" type="button" tabIndex={-1}>Start answering <ChevronRight size={16} /></button>
-                  </div>
-                </div>
-                <div className="landing-workspace-bottom"><span><span className="landing-bottom-check"><Check size={11} /></span> One step at a time</span><span>Practice workspace</span></div>
-              </div>
-              <div className="landing-float-tag landing-focus-tag">
-                <span className="landing-focus-icon"><Sparkles size={17} /></span>
-                <span><strong>Focused practice</strong><small>Build confidence</small></span>
-              </div>
-              <div className="landing-visual-caption"><BriefcaseBusiness size={14} /> A space to prepare with purpose</div>
-            </div>
+            
+<div
+  className="landing-visual landing-features-visual"
+  aria-label="SkillEngine features: AI interviews, coding assessments, resume review, structured learning, performance analytics, and job readiness"
+  data-reveal
+>
+  {/* Decorative background */}
+  <div className="landing-features-glow" />
+
+  {/* SkillEngine branding */}
+  <div className="landing-features-brand">
+    <span className="landing-features-brand-mark">S</span>
+    <div>
+      <strong>
+        Skill<span>Engine</span>
+      </strong>
+      <small>Learn · Practice · Grow</small>
+    </div>
+  </div>
+
+  {/* Feature-focused illustration */}
+  <div className="landing-features-image">
+    <img
+      src="/images/skillengine-features.png"
+      alt="Explore SkillEngine features including AI-powered interviews, coding assessments, resume review, structured learning paths, performance analytics, and job readiness"
+      loading="eager"
+    />
+  </div>
+
+  {/* Supporting message */}
+  <div className="landing-features-caption">
+    <span className="landing-features-caption-icon">
+      <Sparkles size={18} />
+    </span>
+    <div>
+      <strong>One platform. Endless possibilities.</strong>
+      <p>
+        Learn new skills, practice with AI, track your progress,
+        and prepare for your dream career.
+      </p>
+    </div>
+  </div>
+</div>
           </div>
           <a className="landing-scroll-cue" href="#how-it-works" aria-label="Scroll to how it works"><span /> Scroll to explore</a>
         </section>

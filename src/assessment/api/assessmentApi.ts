@@ -480,19 +480,47 @@ export interface QuizAnswer {
 const normalizeSubmissionResult = (data: unknown): AssessmentResult | null => {
   const body = unwrap(data);
   const r = isRec(body.result) ? body.result : body;
+  const section = isRec(body.section) ? body.section : undefined;
+  const attemptScore = isRec(body.currentAttemptScore)
+    ? body.currentAttemptScore
+    : undefined;
   const result: AssessmentResult = {
-    score: num(r.score ?? r.obtained_marks),
-    total_marks: num(r.total_marks ?? r.max_score),
-    percentage: num(r.percentage),
-    status: str(r.result_status ?? r.status) || undefined,
+    score: num(
+      r.score ??
+      r.obtained_marks ??
+      attemptScore?.score ??
+      section?.score,
+    ),
+    total_marks: num(
+      r.total_marks ??
+      r.max_score ??
+      attemptScore?.maxScore ??
+      section?.maxScore,
+    ),
+    percentage: num(
+      r.percentage ??
+      attemptScore?.percentage ??
+      section?.percentage,
+    ),
+    status: str(
+      r.result_status ??
+      r.status ??
+      section?.status,
+    ) || undefined,
     message: str(r.message) || undefined,
+    correct_count: num(section?.correct),
+    wrong_count: num(section?.wrong),
+    unanswered_count: num(section?.unanswered),
   };
 
   return result.score !== undefined ||
     result.total_marks !== undefined ||
     result.percentage !== undefined ||
     result.status !== undefined ||
-    result.message !== undefined
+    result.message !== undefined ||
+    result.correct_count !== undefined ||
+    result.wrong_count !== undefined ||
+    result.unanswered_count !== undefined
     ? result
     : null;
 };
@@ -580,6 +608,7 @@ export const getResult = async (
 export interface CodingRunPayload {
   attempt_id: string;
   attempt_question_id: string;
+  attemptQuestionId?: string;
   question_id: string;
   language: string;
   language_id: number;
@@ -587,13 +616,23 @@ export interface CodingRunPayload {
   stdin?: string;
 }
 
-const ensureCodingLanguageId = (payload: CodingRunPayload): CodingRunPayload => ({
-  ...payload,
-  language_id:
-    Number.isInteger(payload.language_id) && payload.language_id > 0
-      ? payload.language_id
-      : languageId(payload.language),
-});
+const ensureCodingLanguageId = (payload: CodingRunPayload): CodingRunPayload => {
+  const attemptQuestionId =
+    payload.attempt_question_id || payload.attemptQuestionId;
+  if (!attemptQuestionId) {
+    throw new Error('Cannot submit coding code because attempt_question_id is missing.');
+  }
+
+  return {
+    ...payload,
+    attempt_question_id: attemptQuestionId,
+    attemptQuestionId,
+    language_id:
+      Number.isInteger(payload.language_id) && payload.language_id > 0
+        ? payload.language_id
+        : languageId(payload.language),
+  };
+};
 
 export interface CodingRunResult {
   status: string;
@@ -727,8 +766,14 @@ export const submitCodingCode = async (
       ? passed === total
       : undefined;
   const failedStatus = results.find((result) => !result.passed)?.status;
+  const hasTestVerdict = results.length > 0 ||
+    body.all_passed !== undefined ||
+    body.passed_test_cases !== undefined ||
+    body.total_test_cases !== undefined;
   const status = str(body.status ?? body.result_status)
-    || (allPassed === true ? 'Accepted' : failedStatus ?? 'unknown');
+    || (allPassed === true
+      ? 'Accepted'
+      : failedStatus ?? (body.success === true && !hasTestVerdict ? 'Submitted' : 'unknown'));
 
   return {
     status,

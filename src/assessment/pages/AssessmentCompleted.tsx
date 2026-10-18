@@ -186,8 +186,11 @@ export default function AssessmentCompleted() {
                 )}
                 {quizResult.percentage !== undefined && <Row label="MCQ Percentage" value={`${quizResult.percentage}%`} />}
                 {quizResult.status && <Row label="MCQ Status" value={<span className="capitalize">{quizResult.status}</span>} />}
+                {quizResult.correct_count !== undefined && <Row label="Correct" value={quizResult.correct_count} />}
+                {quizResult.wrong_count !== undefined && <Row label="Wrong" value={quizResult.wrong_count} />}
+                {quizResult.unanswered_count !== undefined && <Row label="Unanswered" value={quizResult.unanswered_count} />}
                 {quizResult.message && <p className="mt-2 text-sm text-ink-soft">{quizResult.message}</p>}
-                {quizResult.score === undefined && quizResult.total_marks === undefined && quizResult.percentage === undefined && !quizResult.status && !quizResult.message && (
+                {quizResult.score === undefined && quizResult.total_marks === undefined && quizResult.percentage === undefined && !quizResult.status && !quizResult.message && quizResult.correct_count === undefined && quizResult.wrong_count === undefined && quizResult.unanswered_count === undefined && (
                   <p className="text-sm text-ink-soft">MCQ evaluation returned no score details.</p>
                 )}
               </>

@@ -58,7 +58,7 @@ export default defineConfig(({ mode }) => {
     'http://100.117.158.50:3005';
   const aiApiUrl =
     env.VITE_AI_API_URL ||
-    'http://100.117.158.50:8100';
+    'http://100.117.158.50:8100' || 'http://100.117.158.50:3005';
 
   return {
     plugins: [

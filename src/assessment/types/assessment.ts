@@ -77,7 +77,7 @@ export type Question = MCQQuestion | CodingQuestion;
 export interface Answer { questionId: string; selectedOptionId: string | null; savedAt: number }
 
 export type ExecStatus =
-  | 'idle' | 'running' | 'accepted' | 'wrong_answer'
+  | 'idle' | 'running' | 'submitted' | 'accepted' | 'wrong_answer'
   | 'compilation_error' | 'runtime_error' | 'time_limit' | 'error';
 
 export interface TestCaseResult {
@@ -113,6 +113,9 @@ export interface AssessmentResult {
   percentage?: number;
   status?: string;
   message?: string;
+  correct_count?: number;
+  wrong_count?: number;
+  unanswered_count?: number;
 }
 
 export interface AssessmentSubmissionSnapshot {
