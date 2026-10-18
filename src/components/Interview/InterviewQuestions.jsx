@@ -18,6 +18,17 @@ const DEFAULT_TOTAL_SECONDS = 1800;
 const DEFAULT_QUESTION_SECONDS = 120;
 const DEFAULT_TOTAL_QUESTIONS = 15;
 
+const saveEndInterviewReport = (response) => {
+  const report = response?.data ?? response;
+  if (!report || typeof report !== 'object') return;
+
+  try {
+    sessionStorage.setItem('interviewReport', JSON.stringify(report));
+  } catch (error) {
+    console.error('Error saving interview end report locally:', error);
+  }
+};
+
 const THINKING_LINES = {
   high: [
     "That's a strong answer — let me follow up on that...",
@@ -1284,9 +1295,10 @@ const InterviewQuestions = () => {
         setIsDone(true);
 
         try {
-          await endAIInterview(
+          const response = await endAIInterview(
             aiSessionId
           );
+          saveEndInterviewReport(response);
         } catch (error) {
           console.error(
             'AI interview timeout end error:',
@@ -1698,9 +1710,10 @@ const InterviewQuestions = () => {
 
       if (aiSessionId) {
         try {
-          await endAIInterview(
+          const response = await endAIInterview(
             aiSessionId
           );
+          saveEndInterviewReport(response);
         } catch (endError) {
           console.error(
             'AI interview end error:',
