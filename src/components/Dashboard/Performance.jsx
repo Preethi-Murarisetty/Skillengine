@@ -62,7 +62,34 @@ const AttemptHistory = ({ attempts, comparison, orderReliable }) => (
               <tr key={attempt.id}>
                 <td>{attemptLabel}</td>
                 <td>{formatDate(attempt.completedAt)}</td>
-                <td>{formatScore(attempt)}{Number.isFinite(Number(attempt.percentage)) ? ` · ${attempt.percentage.toFixed(1)}%` : ''}</td>
+                <td>
+                  {formatScore(attempt)}
+                  {Number.isFinite(Number(attempt.percentage)) ? ` · ${attempt.percentage.toFixed(1)}%` : ''}
+                  {attempt.sections?.length > 0 && (
+                    <details className="performance-attempt-section-details">
+                      <summary>Assessment data</summary>
+                      <ul>
+                        {attempt.sections.map((section) => (
+                          <li key={section.section_id || section.id || section.section_name}>
+                            <strong>{section.section_name || section.name || 'Section'}</strong>
+                            <span>
+                              {section.score ?? '—'}
+                              {section.max_score != null ? ` / ${section.max_score}` : ''}
+                              {section.percentage != null ? ` · ${Number(section.percentage).toFixed(1)}%` : ''}
+                            </span>
+                            {(section.correct_count != null || section.wrong_count != null || section.unanswered_count != null) && (
+                              <small>
+                                {section.correct_count != null && `Correct ${section.correct_count}`}
+                                {section.wrong_count != null && ` · Incorrect ${section.wrong_count}`}
+                                {section.unanswered_count != null && ` · Unanswered ${section.unanswered_count}`}
+                              </small>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </details>
+                  )}
+                </td>
                 <td>{attempt.status || 'Completed'}</td>
                 <td className={`attempt-delta ${deltaTone(change)}`}>{!previous ? 'First attempt' : change ? deltaLabel(change) : 'Comparison unavailable'}</td>
               </tr>

@@ -10,6 +10,8 @@ import {
   getUsers,
 } from "../../services/api";
 
+const CANDIDATE_EXAM_BASE_URL = "https://skillenginetest.stackenzo.com/exam";
+
 // One page to create a complete exam: project title + description,
 // MCQ section and coding section, schedule and candidates.
 // Submits everything in a single request: POST /api/assessment
@@ -1163,11 +1165,13 @@ export default function AssessmentCreate() {
       ]
     );
 
-    const shareLink =
-      link ||
-      (token
-        ? `${window.location.origin}/exam/${token}`
-        : null);
+    const tokenFromLink = link?.match(
+      /\/(?:exam|assessment)\/([^/?#\s]+)/i
+    )?.[1];
+    const candidateToken = tokenFromLink || token;
+    const shareLink = candidateToken
+      ? `${CANDIDATE_EXAM_BASE_URL}/${encodeURIComponent(candidateToken)}`
+      : null;
 
     return (
       <div className="max-w-3xl mx-auto bg-white border border-gray-200 rounded-xl p-8">

@@ -66,9 +66,11 @@ const MASTER_API_BASE_URL = `${MANUAL_API_BASE_URL}/api`;
 const unwrapList = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.data?.assessments)) return data.data.assessments;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.result)) return data.result;
   if (Array.isArray(data?.rows)) return data.rows;
+  if (Array.isArray(data?.assessments)) return data.assessments;
   if (Array.isArray(data?.categories)) return data.categories;
   if (Array.isArray(data?.subjects)) return data.subjects;
   if (Array.isArray(data?.topics)) return data.topics;
@@ -468,7 +470,7 @@ export const getInterviews = async () => {
       method: "GET",
       headers: {
         Accept: "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token ? { Authorization: "Bearer " + token } : {}),
       },
     });
 
@@ -575,6 +577,51 @@ export const createAssessment = async (payload) => {
     return data;
   } catch (error) {
     console.error("❌ Create Assessment Error:", error);
+    throw error;
+  }
+};
+
+export const getAssessments = async () => {
+  try {
+    const token = getAuthToken();
+    const response = await fetch(`${MANUAL_API_BASE_URL}/api/assessment`, {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+        ...(token ? { Authorization: "Bearer " + token } : {}),
+      },
+    });
+
+    let data = {};
+    try {
+      data = await response.json();
+    } catch {
+      data = {};
+    }
+
+    if (!response.ok) {
+      throw new Error(
+        data?.message ||
+          data?.error ||
+          data?.detail ||
+          "Failed to fetch assessments."
+      );
+    }
+
+    return unwrapList(data)
+      .filter((assessment) => assessment && typeof assessment === "object")
+      .map((assessment) => ({
+        ...assessment,
+        id:
+          assessment.id ||
+          assessment.assessment_id ||
+          assessment.assessmentId ||
+          assessment._id ||
+          "",
+      }))
+      .filter((assessment) => assessment.id);
+  } catch (error) {
+    console.error("❌ Get Assessments Error:", error);
     throw error;
   }
 };

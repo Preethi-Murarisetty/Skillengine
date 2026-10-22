@@ -652,6 +652,33 @@
     position: relative;
   }
 
+  .login-password-label-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 6px;
+  }
+
+  .login-forgot-link,
+  .login-recovery-back {
+    color: var(--primary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-align: right;
+  }
+
+  .login-forgot-link:hover:not(:disabled),
+  .login-recovery-back:hover:not(:disabled) {
+    text-decoration: underline;
+  }
+
+  .login-forgot-link:disabled,
+  .login-recovery-back:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
   .login-password-wrap .input-field {
     padding-right: 46px;
   }
@@ -682,6 +709,58 @@
     justify-content: center;
     gap: 9px;
     margin-top: 4px;
+  }
+
+  .login-recovery-content {
+    display: grid;
+    gap: 18px;
+  }
+
+  .login-recovery-description {
+    color: #6f5549;
+    font-size: 0.86rem;
+    line-height: 1.55;
+  }
+
+  .login-recovery-message,
+  .login-recovery-error {
+    padding: 12px 14px;
+    border: 1px solid;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    line-height: 1.5;
+  }
+
+  .login-recovery-message {
+    border-color: #bbdfc4;
+    color: #24633b;
+    background: #f0fbf2;
+  }
+
+  .login-recovery-error {
+    border-color: #f2c7be;
+    color: #a13728;
+    background: #fff4f1;
+  }
+
+  .login-recovery-submit {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+  }
+
+  .login-recovery-spinner {
+    width: 17px;
+    height: 17px;
+    border: 2px solid rgba(255, 255, 255, 0.45);
+    border-top-color: #fff;
+    border-radius: 50%;
+    animation: login-recovery-spin 700ms linear infinite;
+  }
+
+  @keyframes login-recovery-spin {
+    to { transform: rotate(360deg); }
   }
 
   .login-register-prompt {

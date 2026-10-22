@@ -83,6 +83,12 @@
 .performance-attempt-table th { padding: 8px 6px; border-bottom: 1px solid #e9ded4; color: #8d796e; font-weight: 800; }
 .performance-attempt-table td { padding: 9px 6px; border-bottom: 1px solid #f1e9e2; color: #5e4e46; vertical-align: top; }
 .performance-attempt-table tr:last-child td { border-bottom: 0; }
+.performance-attempt-section-details { margin-top: 7px; }
+.performance-attempt-section-details summary { color: #9b4b31; cursor: pointer; font-size: 0.6rem; font-weight: 800; }
+.performance-attempt-section-details ul { display: grid; gap: 5px; min-width: 150px; margin-top: 6px; }
+.performance-attempt-section-details li { display: grid; gap: 2px; }
+.performance-attempt-section-details li strong { color: #59463d; font-size: 0.59rem; }
+.performance-attempt-section-details li span,.performance-attempt-section-details li small { color: #827168; font-size: 0.56rem; }
 .performance-comparison-scope { margin-top: 8px; color: #8a786d; font-size: 0.61rem; }
 @media (max-width: 1020px) {
   .performance-category-grid { grid-template-columns: minmax(0, 1fr); }

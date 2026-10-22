@@ -488,29 +488,34 @@ const authApi = axios.create({
 // AUTH REQUEST INTERCEPTOR
 // ============================================================================
 
+const isPasswordRecoveryRequest = (config) =>
+  /\/(?:forgotPassword|resetPassword)(?:[/?]|$)/i.test(config?.url || '');
+
 authApi.interceptors.request.use(
   (config) => {
-    console.log(
-      '===================================='
-    );
+    if (!isPasswordRecoveryRequest(config)) {
+      console.log(
+        '===================================='
+      );
 
-    console.log(
-      `🔐 AUTH REQUEST: ${config.method?.toUpperCase()} ${
-        config.baseURL
-      }${config.url}`
-    );
+      console.log(
+        `🔐 AUTH REQUEST: ${config.method?.toUpperCase()} ${
+          config.baseURL
+        }${config.url}`
+      );
 
-    // Password ni console lo print cheyyakunda
-    // email matrame print chestunnam.
-    console.log(
-      '🔐 AUTH DATA:',
-      {
-        email: config.data?.email,
-        password: config.data?.password
-          ? '******'
-          : undefined,
-      }
-    );
+      // Password ni console lo print cheyyakunda
+      // email matrame print chestunnam.
+      console.log(
+        '🔐 AUTH DATA:',
+        {
+          email: config.data?.email,
+          password: config.data?.password
+            ? '******'
+            : undefined,
+        }
+      );
+    }
 
     const token =
       localStorage.getItem('authToken') ||
@@ -526,10 +531,12 @@ authApi.interceptors.request.use(
   },
 
   (error) => {
-    console.error(
-      '🔐 AUTH REQUEST ERROR:',
-      error
-    );
+    if (!isPasswordRecoveryRequest(error.config)) {
+      console.error(
+        '🔐 AUTH REQUEST ERROR:',
+        error
+      );
+    }
 
     return Promise.reject(error);
   }
@@ -541,6 +548,10 @@ authApi.interceptors.request.use(
 
 authApi.interceptors.response.use(
   (response) => {
+    if (isPasswordRecoveryRequest(response.config)) {
+      return response;
+    }
+
     console.log(
       `🔐 AUTH RESPONSE: ${response.status} ${
         response.config.baseURL
@@ -560,6 +571,10 @@ authApi.interceptors.response.use(
   },
 
   (error) => {
+    if (isPasswordRecoveryRequest(error.config)) {
+      return Promise.reject(error);
+    }
+
     console.log(
       '===================================='
     );
@@ -738,6 +753,24 @@ export const loginUser = async (
 
     throw error;
   }
+};
+
+export const requestPasswordReset = async (email) => {
+  const response = await authApi.post('http://100.117.158.50:8100/api/users/forgotPassword', {
+    email: String(email || '').trim(),
+  });
+
+  return response.data;
+};
+
+export const resetPassword = async (email, otp, newPassword) => {
+  const response = await authApi.post('/resetPassword', {
+    email: String(email || '').trim(),
+    otp: String(otp || '').trim(),
+    newPassword,
+  });
+
+  return response.data;
 };
 
 // ============================================================================
