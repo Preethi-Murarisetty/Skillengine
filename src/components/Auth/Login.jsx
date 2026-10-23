@@ -8,6 +8,7 @@ import {
   resetPassword,
 } from '../../services/api';
 import { isAdminUser } from '../../utils/admin';
+import BrandLogo from '../common/BrandLogo';
 import {
   FaEye,
   FaEyeSlash,
@@ -363,7 +364,8 @@ const Login = () => {
           <div className="login-hero-content">
 
             <span className="login-kicker">
-              🎯 skillEngine
+              <BrandLogo variant="mark" className="login-brand-mark" />
+              SkillEngine
             </span>
 
             <h1>Welcome to skillEngine</h1>

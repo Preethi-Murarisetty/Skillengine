@@ -9,11 +9,16 @@
   align-items: center;
 }
 .admin-root .login-card {
-  width: 400px;
+  width: min(400px, calc(100% - 32px));
   padding: 40px;
   background: white;
   border-radius: 12px;
   box-shadow: 0 8px 30px rgba(0, 0, 0, 0.1);
+}
+.admin-root .admin-login-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 20px;
 }
 .admin-root .login-card h1 {
   margin: 0 0 10px;

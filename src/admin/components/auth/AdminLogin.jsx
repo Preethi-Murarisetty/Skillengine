@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../../hooks/useAuth";
 import { getApiErrorMessage } from "../../../services/api";
 import { isAdminUser } from "../../../utils/admin";
+import BrandLogo from "../../../components/common/BrandLogo";
 import "../../admin.css";
 
 function AdminLogin() {
@@ -53,6 +54,9 @@ function AdminLogin() {
     <div className="admin-root">
       <div className="login-page">
         <div className="login-card">
+          <div className="admin-login-brand">
+            <BrandLogo className="admin-login-brand-logo" />
+          </div>
           <h1>Admin Login</h1>
           <p>Sign in to access the Admin Dashboard</p>
 

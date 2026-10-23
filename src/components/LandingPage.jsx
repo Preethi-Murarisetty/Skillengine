@@ -18,6 +18,7 @@ import {
   UserRoundPlus,
   X,
 } from 'lucide-react';
+import BrandLogo from './common/BrandLogo';
 import './LandingPage.css';
 
 const journey = [
@@ -127,8 +128,7 @@ const LandingPage = () => {
       <header className="landing-nav">
         <div className="landing-nav-inner">
           <a className="landing-brand" href="#top" aria-label="SkillEngine home" onClick={closeMenu}>
-            <span className="landing-brand-mark">S</span>
-            <span>Skill<span>Engine</span></span>
+            <BrandLogo className="landing-brand-logo" />
           </a>
 
           <button
@@ -186,24 +186,9 @@ const LandingPage = () => {
   {/* Decorative background */}
   <div className="landing-features-glow" />
 
-  {/* SkillEngine branding */}
-  <div className="landing-features-brand">
-    <span className="landing-features-brand-mark">S</span>
-    <div>
-      <strong>
-        Skill<span>Engine</span>
-      </strong>
-      <small>Learn · Practice · Grow</small>
-    </div>
-  </div>
-
-  {/* Feature-focused illustration */}
+  {/* Official SkillEngine branding */}
   <div className="landing-features-image">
-    <img
-      src="/images/skillengine-features.png"
-      alt="Explore SkillEngine features including AI-powered interviews, coding assessments, resume review, structured learning paths, performance analytics, and job readiness"
-      loading="eager"
-    />
+    <BrandLogo className="landing-features-image-logo" />
   </div>
 
   {/* Supporting message */}
@@ -286,8 +271,7 @@ const LandingPage = () => {
         <div className="landing-footer-main">
           <div className="landing-footer-brand">
             <a className="landing-brand" href="#top" aria-label="SkillEngine home">
-              <span className="landing-brand-mark">S</span>
-              <span>Skill<span>Engine</span></span>
+              <BrandLogo className="landing-brand-logo" />
             </a>
             <p>Practical tools to assess, practise, and prepare for your next interview.</p>
           </div>

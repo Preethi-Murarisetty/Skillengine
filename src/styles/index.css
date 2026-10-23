@@ -1102,6 +1102,8 @@
 
     box-shadow: 0 5px 12px rgba(244, 81, 30, 0.2);
 }
+.dashboard-brand .dashboard-shell-logo { width: 132px; height: 44px; }
+.dashboard-mobile-brand .dashboard-shell-mobile-logo { width: 120px; height: 40px; }
 .dashboard-nav { display: grid; gap: 5px; }
 .dashboard-nav-item { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 12px; border-radius: 9px; color: #8a6b5e; font-size: 0.83rem; font-weight: 650; text-align: left; transition: color 180ms ease, background 180ms ease, transform 180ms ease; }
 .dashboard-nav-item:hover, .dashboard-nav-item.is-active { color: #fff; background: var(--primary); box-shadow: 0 7px 14px rgba(244, 81, 30, 0.18); }

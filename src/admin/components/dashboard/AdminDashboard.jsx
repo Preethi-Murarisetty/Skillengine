@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 
 /*
  * SkillEngine Admin Dashboard — single file, demo mode.
@@ -225,7 +226,13 @@ export default function AdminDashboard() {
   const [assessments] = useState(MOCK_ASSESSMENTS);
   const [results] = useState(MOCK_RESULTS);
 
-  const [tab, setTab] = useState("Overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedTab = searchParams.get("section");
+  const [tab, setTab] = useState(() => TABS.includes(requestedTab) ? requestedTab : "Overview");
+
+  useEffect(() => {
+    setTab(TABS.includes(requestedTab) ? requestedTab : "Overview");
+  }, [requestedTab]);
   const [filters, setFilters] = useState(emptyFilters);
   const [search, setSearch] = useState("");
   const [modal, setModal] = useState(null); // "student" | "institution" | null
@@ -342,7 +349,7 @@ export default function AdminDashboard() {
     }
   };
 
-  const viewInstitution = (id) => { setFilters({ ...emptyFilters(), institutionId: id }); setSearch(""); setTab("Overview"); };
+  const viewInstitution = (id) => { setFilters({ ...emptyFilters(), institutionId: id }); setSearch(""); setSearchParams({ section: "Overview" }); setTab("Overview"); };
 
   // CSV exports follow the current filters
   const exportStudents = () =>
@@ -383,19 +390,8 @@ export default function AdminDashboard() {
   // RENDER
   // =========================================================
   return (
-    <div className="flex min-h-screen flex-col bg-gray-50 text-gray-800 md:flex-row">
-      {/* ---------- SIDEBAR ---------- */}
-      <aside className="w-full shrink-0 bg-slate-900 p-4 text-slate-200 md:w-56">
-        <p className="mb-1 px-2 text-lg font-bold text-white">SkillEngine</p>
-        <p className="mb-5 px-2 text-xs text-orange-300">● Demo data mode</p>
-        <nav className="flex gap-1 overflow-x-auto md:flex-col">
-          {TABS.map((t) => (
-            <button key={t} onClick={() => setTab(t)} className={`rounded-lg px-3 py-2 text-left text-sm font-medium ${tab === t ? "bg-orange-500 text-white" : "hover:bg-slate-800"}`}>{t}</button>
-          ))}
-        </nav>
-      </aside>
-
-      <main className="min-w-0 flex-1 p-5 md:p-8">
+    <div className="w-full min-w-0 text-gray-800">
+      <div className="min-w-0 w-full">
         {/* ---------- HEADER ---------- */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">{tab}</h1>
@@ -572,7 +568,7 @@ export default function AdminDashboard() {
             </Card>
           </>
         )}
-      </main>
+      </div>
 
       {/* ---------- MODAL: add student ---------- */}
       {modal === "student" && (

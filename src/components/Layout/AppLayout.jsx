@@ -18,6 +18,7 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../hooks/useAuth';
 import { isAdminUser } from '../../utils/admin';
+import BrandLogo from '../common/BrandLogo';
 
 const navItems = [
   { label: 'Dashboard', icon: <FaHome />, path: '/' },
@@ -96,7 +97,7 @@ const Sidebar = ({ isOpen, onClose }) => {
 
   return (
     <aside className={`dashboard-sidebar ${isOpen ? 'is-open' : ''}`}>
-      <div className="dashboard-brand"><span className="dashboard-brand-mark">S</span><span>skillEngine</span></div>
+      <div className="dashboard-brand"><BrandLogo className="dashboard-shell-logo" /></div>
       <nav className="dashboard-nav" aria-label="Dashboard navigation">
         {navItems.map((item) => (
           <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-nav-item ${isDashboardActive ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
@@ -233,7 +234,7 @@ const TopHeader = ({ onMenuToggle }) => {
 
   return (
     <header className="dashboard-topbar">
-      <div className="dashboard-mobile-brand"><button type="button" className="dashboard-menu-button" onClick={onMenuToggle} aria-label="Toggle dashboard menu">☰</button><span className="dashboard-brand-mark">S</span><span>skillEngine</span></div>
+      <div className="dashboard-mobile-brand"><button type="button" className="dashboard-menu-button" onClick={onMenuToggle} aria-label="Toggle dashboard menu">☰</button><BrandLogo className="dashboard-shell-mobile-logo" /></div>
       <div className="dashboard-breadcrumb"><span>Dashboard</span><span>/</span><strong>{getPageName(location.pathname)}</strong></div>
       <div className="dashboard-user-actions">
         <NotificationPanel />
