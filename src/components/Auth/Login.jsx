@@ -199,11 +199,11 @@ const Login = () => {
       const loggedInUser = await login(email, password);
 
       // Admin -> Admin Dashboard
-      // Normal user -> Resume Upload page
+      // Normal user -> dashboard
       navigate(
         isAdminUser(loggedInUser)
           ? '/admin/dashboard'
-          : '/upload-resume'
+          : '/dashboard'
       );
     } catch (err) {
       if (!mountedRef.current) return;

@@ -78,7 +78,7 @@ export default function AssessmentCompleted() {
         cached = null;
       }
 
-      let interviewData = cached?.response;
+      let interviewData: Record<string, any> = cached?.response ?? {};
       let topic = cached?.topic;
       let level = cached?.level;
 
@@ -98,10 +98,10 @@ export default function AssessmentCompleted() {
           last_candidate_answer: '',
           next_question_type: 'basic',
         });
-        interviewData = response?.data || response || {};
+        interviewData = (response?.data ?? response ?? {}) as Record<string, any>;
 
         if (interviewData.status === 'error' || !interviewData.session_id) {
-          throw new Error(interviewData.message || 'The interview service did not return a session ID.');
+          throw new Error(String(interviewData.message || 'The interview service did not return a session ID.'));
         }
 
         try {

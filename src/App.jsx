@@ -33,6 +33,7 @@ import Phase1Result from './components/Phase1/Phase1Result';
 
 import Practice from './components/Practice/Practice';
 import Interviews from './components/Interview/Interviews';
+import CourseLanding from './components/Courses/CourseLanding';
 
 import UpcomingAssignment from './components/Coding/UpcomingAssignment';
 
@@ -230,6 +231,18 @@ function App() {
               <Route
                 path="/assessments/interview"
                 element={<AssessmentInterview />}
+              />
+
+              {/* Sample Test and Courses */}
+
+              <Route
+                path="/sample-test"
+                element={<ResumeUpload isSampleTest />}
+              />
+
+              <Route
+                path="/courses"
+                element={<CourseLanding />}
               />
 
               {/* Interviews */}

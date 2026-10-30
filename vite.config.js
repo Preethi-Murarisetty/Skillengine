@@ -58,7 +58,10 @@ export default defineConfig(({ mode }) => {
     'http://100.117.158.50:3005';
   const aiApiUrl =
     env.VITE_AI_API_URL ||
-    'http://100.117.158.50:8100' || 'http://100.117.158.50:3005';
+    'http://100.117.158.50:8100';
+  const resumeApiUrl =
+    env.VITE_RESUME_API_URL ||
+    'http://127.0.0.1:8000';
 
   return {
     plugins: [
@@ -110,6 +113,14 @@ export default defineConfig(({ mode }) => {
               /^\/ai-backend/,
               '',
             ),
+        },
+
+        // Resume analysis and role discovery FastAPI service.
+        '/resume-api': {
+          target: resumeApiUrl,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/resume-api/, ''),
         },
       },
     },

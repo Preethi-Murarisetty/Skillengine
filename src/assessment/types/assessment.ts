@@ -140,4 +140,5 @@ export interface AssessmentSession {
   questionsAssigned: boolean;
   /** Non-sensitive assessment metadata (title, sections). No questions or test cases. */
   assessment: Assessment | null;
+  questions?: Record<string, Question[]>;
 }

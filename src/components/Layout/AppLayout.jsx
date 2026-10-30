@@ -2,39 +2,36 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   FaBell,
+  FaBookOpen,
   FaChartBar,
   FaChartLine,
   FaClipboardCheck,
-  FaClipboardList,
   FaCog,
   FaDumbbell,
-  FaFileAlt,
   FaHome,
   FaLaptopCode,
   FaMicrophone,
   FaRocket,
   FaSignOutAlt,
   FaUser,
+  FaUserPlus,
 } from 'react-icons/fa';
 import { useAuth } from '../../hooks/useAuth';
 import { isAdminUser } from '../../utils/admin';
 import BrandLogo from '../common/BrandLogo';
 
 const navItems = [
-  { label: 'Dashboard', icon: <FaHome />, path: '/' },
+  { label: 'Dashboard', icon: <FaHome />, path: '/dashboard' },
+  { label: 'Sample Test', icon: <FaClipboardCheck />, path: '/sample-test' },
 ];
 
-// Everything that existed before the assessment module now lives under "Practice".
 const practiceItems = [
-  { label: 'Quiz', icon: <FaClipboardList />, path: '/quiz' },
-  { label: 'Resume', icon: <FaFileAlt />, path: '/resume' },
+  { label: 'Quiz', icon: <FaClipboardCheck />, path: '/quiz' },
   { label: 'Interviews', icon: <FaMicrophone />, path: '/interviews' },
   { label: 'Coding', icon: <FaChartLine />, path: '/upcoming-assignment' },
   { label: 'Performance', icon: <FaChartLine />, path: '/performance' },
 ];
 
-// Assessment has two sections: MCQ & Coding (existing /assessments page)
-// and Interview (separate setup page).
 const assessmentItems = [
   { label: 'MCQ & Coding', icon: <FaLaptopCode />, path: '/assessments' },
   { label: 'Interview', icon: <FaMicrophone />, path: '/assessments/interview' },
@@ -49,30 +46,44 @@ const isAssessmentItemActive = (label, pathname) => {
   return false;
 };
 
-// All quiz-related routes: setup (/quiz), instructions (/quiz/start),
-// the test (/Phase1Test) and the result (/phase1/result).
-const isQuizPath = (pathname) => {
+const isSampleTestPath = (pathname) => {
   const path = pathname.toLowerCase();
-  return path.startsWith('/quiz') || path.startsWith('/phase1') || path === '/practice';
+  return (
+    path === '/sample-test' ||
+    path === '/resume' ||
+    path === '/upload-resume' ||
+    path === '/intro' ||
+    path === '/interview' ||
+    path === '/interview/questions' ||
+    path === '/report' ||
+    path === '/interview/report' ||
+    path.startsWith('/sample-test/')
+  );
 };
 
 const isPracticeItemActive = (label, pathname) => {
-  if (label === 'Quiz') return isQuizPath(pathname);
-  if (label === 'Resume') return pathname === '/resume' || pathname === '/intro' || pathname === '/upload-resume';
-  if (label === 'Interviews') return pathname === '/interviews' || pathname === '/interview' || pathname === '/interview/questions';
+  if (label === 'Quiz') return pathname === '/quiz' || pathname.startsWith('/quiz/') || pathname === '/practice';
+  if (label === 'Interviews') return pathname === '/interviews' || pathname.startsWith('/interviews/');
   if (label === 'Coding') return pathname === '/upcoming-assignment';
   if (label === 'Performance') return pathname === '/performance';
   return false;
 };
 
+const isNavItemActive = (item, pathname) => {
+  if (item.path === '/dashboard') return pathname === '/' || pathname === '/dashboard';
+  if (item.path === '/sample-test') return isSampleTestPath(pathname);
+  return pathname === item.path;
+};
+
 const pageNames = [
   { match: (path) => path === '/' || path === '/dashboard', name: 'Overview' },
-  { match: (path) => isQuizPath(path), name: 'Quiz' },
+  { match: (path) => isSampleTestPath(path), name: 'Sample Test' },
   { match: (path) => path === '/performance', name: 'Performance' },
   { match: (path) => path === '/report' || path === '/interview/report', name: 'Interview Report' },
   { match: (path) => path === '/interviews' || path === '/interview' || path === '/interview/questions', name: 'Interviews' },
   { match: (path) => path === '/upcoming-assignment', name: 'Coding' },
-  { match: (path) => path === '/resume' || path === '/intro' || path === '/upload-resume', name: 'Resume' },
+  { match: (path) => path === '/resume' || path === '/intro' || path === '/upload-resume', name: 'Interview Upload' },
+  { match: (path) => path === '/courses', name: 'Courses' },
   { match: (path) => isAssessmentInterviewPath(path), name: 'Assessment Interview' },
   { match: (path) => path.toLowerCase().startsWith('/assessments'), name: 'Assessment' },
   { match: (path) => path === '/profile', name: 'Profile' },
@@ -91,7 +102,6 @@ const Sidebar = ({ isOpen, onClose }) => {
     navigate(path);
   };
 
-  const isDashboardActive = location.pathname === '/' || location.pathname === '/dashboard';
   const isPracticeActive = practiceItems.some((item) => isPracticeItemActive(item.label, location.pathname));
   const isAssessmentActive = assessmentItems.some((item) => isAssessmentItemActive(item.label, location.pathname));
 
@@ -100,7 +110,7 @@ const Sidebar = ({ isOpen, onClose }) => {
       <div className="dashboard-brand"><BrandLogo className="dashboard-shell-logo" /></div>
       <nav className="dashboard-nav" aria-label="Dashboard navigation">
         {navItems.map((item) => (
-          <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-nav-item ${isDashboardActive ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
+          <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-nav-item ${isNavItemActive(item, location.pathname) ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
         ))}
         <button type="button" aria-expanded={isPracticeOpen} onClick={() => setIsPracticeOpen((open) => !open)} className={`dashboard-nav-item ${isPracticeActive ? 'is-active' : ''}`}><span><FaDumbbell /></span>Practice<span className="dashboard-nav-chevron">{isPracticeOpen ? '⌃' : '⌄'}</span></button>
         {isPracticeOpen && <div className="dashboard-subnav">{practiceItems.map((item) => (

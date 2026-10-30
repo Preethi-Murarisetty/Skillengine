@@ -1,4 +1,5 @@
 import { API_BASE_URL, PDF_API_BASE_URL as PDF_BASE } from "../config";
+import { applyStudentPlacements } from "../utils/studentPlacement";
 
 // ============================================================================
 // API BASE URLs
@@ -6,6 +7,26 @@ import { API_BASE_URL, PDF_API_BASE_URL as PDF_BASE } from "../config";
 const MANUAL_API_BASE_URL = API_BASE_URL;
 const PDF_API_BASE_URL = PDF_BASE;
 const AUTH_API_BASE_URL = `${MANUAL_API_BASE_URL}/api/users`;
+
+const unwrapUsers = (value) => {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== "object") return [];
+
+  for (const key of ["users", "students", "student_records", "studentRecords", "institutional_users", "institutionalUsers", "profiles", "records", "items", "results", "rows", "result", "data", "payload"]) {
+    const nested = value[key];
+    if (Array.isArray(nested) && nested.length) return nested;
+    if (nested && typeof nested === "object") {
+      const users = unwrapUsers(nested);
+      if (users.length) return users;
+    }
+  }
+
+  if (["id", "user_id", "userId", "_id", "student_id", "studentId"].some((key) => value[key] !== undefined)) {
+    return [value];
+  }
+
+  return [];
+};
 
 // ============================================================================
 // AUTH TOKEN HELPER
@@ -167,15 +188,7 @@ export const getUsers = async () => {
     const response = await authApi.get("/users");
     console.log("👥 Users API response:", response.data);
 
-    const data = response.data;
-
-    if (Array.isArray(data)) return data;
-    if (Array.isArray(data?.users)) return data.users;
-    if (Array.isArray(data?.data)) return data.data;
-    if (Array.isArray(data?.items)) return data.items;
-    if (Array.isArray(data?.result)) return data.result;
-
-    return [];
+    return applyStudentPlacements(unwrapUsers(response.data));
   } catch (error) {
     console.error(
       "❌ Error fetching users:",

@@ -1,5 +1,6 @@
 // src/services/api.
 import axios from 'axios';
+import resumeRoleApi from './resumeRoleApi';
 
 // ============================================================================
 // API BASE URLs
@@ -1365,17 +1366,13 @@ const toInterviewResultPayload =
 // ANALYZE RESUME - AI BACKEND
 // ============================================================================
 
-// ============================================================================
-// ANALYZE RESUME - AI BACKEND
-// ============================================================================
-
 export const analyzeResumeAPI = async (
   file,
   userEmail,
   jobRole = 'Software Engineer'
 ) => {
   if (!file) {
-    throw new Error('Please select a resume file.');
+    throw new Error('Please select a resume file to analyze.');
   }
 
   const formData = new FormData();
@@ -1394,7 +1391,7 @@ export const analyzeResumeAPI = async (
     console.log('💼 Job Role:', jobRole);
 
     const response = await aiApi.post(
-      'http://127.0.0.1:8000/api/analyze-resume',
+      'http://127.0.0.1:8000/resume/analyze',
       formData,
       {
         headers: {
@@ -1442,20 +1439,10 @@ export const interviewAPI = {
       );
     }
 
-    return aiApi
+    return resumeRoleApi
       .post(
-        'http://100.117.158.50:3005/api/analyze-resume',
-        formData,
-        {
-          headers: {
-            'Content-Type':
-              'multipart/form-data',
-
-            Accept:
-              'application/json',
-          },
-
-        }
+        '/resume/analyze',
+        formData
       )
       .then(
         (response) =>

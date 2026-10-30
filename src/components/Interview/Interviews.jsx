@@ -2,6 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaChartLine, FaMicrophone, FaPlay, FaStar, FaTrophy } from 'react-icons/fa';
 import api from '../../services/api';
+import ResumeUpload from './ResumeUpload';
+
+const hasStoredResumeData = () => {
+  try {
+    return Boolean(sessionStorage.getItem('resumeData'));
+  } catch {
+    return false;
+  }
+};
 
 const Interviews = () => {
   const navigate = useNavigate();
@@ -9,11 +18,22 @@ const Interviews = () => {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    if (!hasStoredResumeData()) {
+      setIsLoading(false);
+      return undefined;
+    }
+
     api.get('/interviews')
       .then((response) => { if (response.data.success) setHistory(response.data.sessions || []); })
       .catch(() => {})
       .finally(() => setIsLoading(false));
+
+    return undefined;
   }, []);
+
+  if (!hasStoredResumeData()) {
+    return <ResumeUpload />;
+  }
 
   const metrics = useMemo(() => {
     const scores = history.map((session) => Number(session.overall_score) || 0);

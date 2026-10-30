@@ -1143,6 +1143,30 @@
 .dashboard-breadcrumb { display: flex; align-items: center; gap: 9px; color: #b08a76; font-size: 0.8rem; }
 .dashboard-breadcrumb strong { color: #6f5549; font-weight: 700; }
 .dashboard-user-actions { display: flex; align-items: center; gap: 17px; }
+.dashboard-header-actions { display: flex; align-items: center; gap: 10px; margin-right: 6px; }
+.dashboard-header-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    min-height: 38px;
+    padding: 0 14px;
+    border: 1px solid #f0dfd2;
+    border-radius: 999px;
+    background: #fffdf9;
+    color: #5c443b;
+    font-size: 0.72rem;
+    font-weight: 750;
+    box-shadow: 0 6px 16px rgba(91, 52, 37, 0.04);
+    transition: transform 180ms ease, border-color 180ms ease, color 180ms ease, background 180ms ease;
+}
+.dashboard-header-action:hover {
+    color: var(--primary);
+    border-color: rgba(244, 81, 30, 0.35);
+    background: #fff6f2;
+    transform: translateY(-1px);
+}
+.dashboard-header-action span { display: inline-flex; color: currentColor; }
 .dashboard-notification-wrapper { position: relative; }
 .dashboard-icon-button { position: relative; display: grid; width: 30px; height: 30px; place-items: center; color: #8a6b5e; }
 .dashboard-icon-button:hover, .dashboard-notification-button.is-active { color: var(--primary); }
@@ -1564,6 +1588,7 @@
   .dashboard-menu-button { display: inline-grid; width: 31px; height: 31px; margin-right: 7px; place-items: center; color: #a94727; font-size: 1.1rem; }
   .dashboard-topbar { height: 58px; padding: 0 14px; }
   .dashboard-breadcrumb { display: none; }
+  .dashboard-header-actions { display: none; }
   .dashboard-user-button > span:not(.dashboard-avatar) { display: inline; max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .dashboard-main { padding: 14px; }
   .dashboard-welcome-banner { min-height: 190px; padding: 23px 20px; }

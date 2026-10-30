@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   FaThLarge,
   FaClipboardList,
@@ -12,6 +12,9 @@ import {
   FaBars,
   FaTimes,
   FaLayerGroup,
+  FaTable,
+  FaSearch,
+  FaBell,
 } from "react-icons/fa";
 import { useAuth } from "../../hooks/useAuth";
 import BrandLogo from "../../components/common/BrandLogo";
@@ -19,14 +22,14 @@ import BrandLogo from "../../components/common/BrandLogo";
 const T = {
   sidebarWidth: 260,
   headerHeight: 64,
-  orange: "#ea580c",
-  orangeSoft: "#ffedd5",
-  orangeHover: "#fdf1e8",
-  text: "#374151",
-  textMuted: "#6b7280",
-  border: "#e5e7eb",
+  orange: "#F47721",
+  orangeSoft: "#fff0e3",
+  orangeHover: "#3a3734",
+  text: "#292524",
+  textMuted: "#78716c",
+  border: "#e8e1da",
   white: "#ffffff",
-  bg: "#f7f7f8",
+  bg: "#FAF8F5",
   red: "#dc2626",
   redSoft: "#fee2e2",
 };
@@ -34,6 +37,7 @@ const T = {
 const dashboardSections = [
   { name: "Overview", section: "Overview", icon: <FaThLarge /> },
   { name: "Students", section: "Students", icon: <FaUserTie /> },
+  { name: "Institutional Student Data", section: "Institutional Student Data", icon: <FaTable /> },
   { name: "Assessments", section: "Assessments", icon: <FaTasks /> },
   { name: "Academics", section: "Academics", icon: <FaLayerGroup /> },
   { name: "Institutions", section: "Institutions", icon: <FaLayerGroup /> },
@@ -52,13 +56,29 @@ const otherMenuItems = [
 function AdminLayout() {
   const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [adminSearch, setAdminSearch] = useState("");
 
   const displayName =
     user?.fullName || user?.name || user?.email || "Admin";
 
-  const activeSection =
-    new URLSearchParams(location.search).get("section") || "Overview";
+  const dashboardParams = new URLSearchParams(location.search);
+  const legacySection = dashboardParams.get("section");
+  const activeSection = dashboardParams.get("dashboardTab") ||
+    (dashboardSections.some((item) => item.section === legacySection) ? legacySection : "Dashboard");
+
+  const assessmentPath = (() => {
+    if (location.pathname !== "/admin/dashboard") return "/admin/assessment";
+    const current = new URLSearchParams(location.search);
+    const cohort = new URLSearchParams();
+    ["institution", "campus", "course", "year", "department", "section", "semester"].forEach((key) => {
+      const value = current.get(key);
+      if (value) cohort.set(key, value);
+    });
+    const query = cohort.toString();
+    return `/admin/assessment${query ? `?${query}` : ""}`;
+  })();
 
   const handleLogout = async () => {
     try {
@@ -83,8 +103,8 @@ function AdminLayout() {
     textDecoration: "none",
     fontSize: nested ? 13 : 14,
     fontWeight: active ? 600 : 500,
-    color: active ? T.orange : T.text,
-    background: active ? T.orangeSoft : "transparent",
+    color: active ? "#ffffff" : "#e7e5e4",
+    background: active ? "#3a3734" : "transparent",
     marginBottom: 4,
     boxSizing: "border-box",
     position: "relative",
@@ -102,7 +122,7 @@ function AdminLayout() {
       <style>{`
         .se-sidebar-link:hover {
           background: ${T.orangeHover};
-          color: ${T.orange};
+          color: #ffffff;
         }
 
         .se-sidebar-link.active::before {
@@ -114,6 +134,15 @@ function AdminLayout() {
           width: 3px;
           border-radius: 3px;
           background: ${T.orange};
+        }
+
+        .se-admin-search:focus-within {
+          border-color: ${T.orange};
+          box-shadow: 0 0 0 3px rgba(244, 119, 33, .13);
+        }
+
+        @media (max-width: 700px) {
+          .se-admin-search { display: none !important; }
         }
 
         @media (max-width: 900px) {
@@ -164,7 +193,7 @@ function AdminLayout() {
               display: "none",
               position: "fixed",
               inset: 0,
-              background: "rgba(15,23,42,.4)",
+              background: "rgba(25,22,20,.55)",
               zIndex: 40,
             }}
           />
@@ -178,8 +207,8 @@ function AdminLayout() {
             flexDirection: "column",
             width: T.sidebarWidth,
             flexShrink: 0,
-            background: T.white,
-            borderRight: `1px solid ${T.border}`,
+            background: "#242424",
+            borderRight: "1px solid #373431",
             height: "100vh",
             position: "sticky",
             top: 0,
@@ -194,7 +223,7 @@ function AdminLayout() {
               gap: 12,
               height: T.headerHeight,
               padding: "0 16px",
-              borderBottom: `1px solid ${T.border}`,
+              borderBottom: "1px solid #373431",
               flexShrink: 0,
             }}
           >
@@ -210,6 +239,7 @@ function AdminLayout() {
                 marginLeft: "auto",
                 border: 0,
                 background: "transparent",
+                color: "#f5f5f4",
                 fontSize: 18,
                 cursor: "pointer",
               }}
@@ -221,12 +251,12 @@ function AdminLayout() {
           <nav style={{ flex: 1, padding: 12 }}>
             {/* Dashboard parent */}
             <NavLink
-              to="/admin/dashboard?section=Overview"
+              to="/admin/dashboard?section=Dashboard"
               onClick={closeSidebar}
               className="se-sidebar-link"
               style={linkStyle(
                 location.pathname === "/admin/dashboard" &&
-                  activeSection === "Overview"
+                  activeSection === "Dashboard"
               )}
             >
               <FaThLarge />
@@ -250,9 +280,10 @@ function AdminLayout() {
                 return (
                   <NavLink
                     key={item.section}
-                    to={`/admin/dashboard?section=${encodeURIComponent(
-                      item.section
-                    )}`}
+                    to={`/admin/dashboard?dashboardTab=${encodeURIComponent(item.section)}${["institution", "campus", "course", "year", "department", "section", "semester"].map((key) => {
+                      const value = location.pathname === "/admin/dashboard" ? dashboardParams.get(key) : null;
+                      return value ? `&${encodeURIComponent(key)}=${encodeURIComponent(value)}` : "";
+                    }).join("")}`}
                     onClick={closeSidebar}
                     className="se-sidebar-link"
                     style={linkStyle(active, true)}
@@ -268,7 +299,7 @@ function AdminLayout() {
             {otherMenuItems.map((item) => (
               <NavLink
                 key={item.path}
-                to={item.path}
+                to={item.path === "/admin/assessment" ? assessmentPath : item.path}
                 onClick={closeSidebar}
                 className="se-sidebar-link"
                 style={({ isActive }) => linkStyle(isActive)}
@@ -321,8 +352,9 @@ function AdminLayout() {
               gap: 12,
               height: T.headerHeight,
               padding: "0 24px",
-              background: T.white,
+              background: "rgba(255,255,255,.94)",
               borderBottom: `1px solid ${T.border}`,
+              boxShadow: "0 2px 10px rgba(41, 37, 36, .035)",
               position: "sticky",
               top: 0,
               zIndex: 20,
@@ -354,7 +386,7 @@ function AdminLayout() {
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
-                marginRight: "auto",
+                flexShrink: 0,
                 color: T.textMuted,
                 fontSize: 14,
               }}
@@ -369,6 +401,16 @@ function AdminLayout() {
                     )?.name || "Admin"}
               </strong>
             </div>
+
+            <form className="se-admin-search" onSubmit={(event) => {
+              event.preventDefault();
+              const query = adminSearch.trim();
+              if (!query) return;
+              navigate(`/admin/dashboard?dashboardTab=Students&studentSearch=${encodeURIComponent(query)}`);
+            }} style={{ display: "flex", alignItems: "center", gap: 9, width: "min(360px, 30vw)", height: 40, marginLeft: "auto", padding: "0 12px", border: `1px solid ${T.border}`, borderRadius: 10, background: "#FAF8F5", color: T.textMuted }}>
+              <FaSearch size={13} aria-hidden="true" />
+              <input aria-label="Search students" value={adminSearch} onChange={(event) => setAdminSearch(event.target.value)} placeholder="Search students by name, ID, email" style={{ width: "100%", minWidth: 0, border: 0, outline: 0, background: "transparent", color: T.text, fontSize: 13 }} />
+            </form>
 
             <div
               style={{
@@ -397,6 +439,16 @@ function AdminLayout() {
               <span className="se-profile-name" style={{ fontWeight: 600 }}>
                 {displayName}
               </span>
+
+              <button
+                type="button"
+                onClick={() => navigate("/admin/dashboard?dashboardTab=Assessments")}
+                aria-label="View assessment notifications"
+                title="View assessment activity"
+                style={{ display: "grid", placeItems: "center", width: 38, height: 38, border: `1px solid ${T.border}`, borderRadius: 10, background: T.white, color: T.text, cursor: "pointer" }}
+              >
+                <FaBell />
+              </button>
 
               <button
                 type="button"

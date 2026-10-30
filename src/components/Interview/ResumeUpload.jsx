@@ -21,6 +21,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { interviewAPI } from '../../services/api';
 import { getResumeSkills } from '../../utils/skills';
 import { analyzeResumeFile } from '../../services/atsResumeChecker';
+import { analyzeResumeWithBackend, discoverRolesFromResume, getRoleRequirements } from '../../services/resumeRoleApi';
 
 const ResumeUpload = () => {
   const { user } = useAuth();
@@ -34,6 +35,12 @@ const ResumeUpload = () => {
   const [analysisResult, setAnalysisResult] = useState(null);
   const [atsResult, setAtsResult] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [resumeText, setResumeText] = useState('');
+  const [resumeAnalysis, setResumeAnalysis] = useState(null);
+  const [discoveredRoles, setDiscoveredRoles] = useState([]);
+  const [selectedRole, setSelectedRole] = useState('');
+  const [roleRequirements, setRoleRequirements] = useState(null);
+  const [requirementsLoading, setRequirementsLoading] = useState(false);
 
   const handleSelectedFile = (selectedFile) => {
     if (!selectedFile) return;
@@ -52,6 +59,11 @@ const ResumeUpload = () => {
         return;
       }
       setAtsResult(null);
+      setResumeAnalysis(null);
+      setResumeText('');
+      setDiscoveredRoles([]);
+      setSelectedRole('');
+      setRoleRequirements(null);
     }
     setFile(selectedFile);
     setError('');
@@ -167,10 +179,19 @@ const ResumeUpload = () => {
     } catch (error) {
       console.error('Analysis error:', error);
       const backendData = error?.response?.data;
+      const hasBackendMessage = Boolean(
+        backendData?.detail
+        || backendData?.message
+        || backendData?.error
+        || (Array.isArray(backendData) && backendData.length)
+      );
       const detail = backendData?.detail
         || backendData?.message
         || backendData?.error
         || (Array.isArray(backendData) ? backendData.map((item) => item?.msg || item?.error || JSON.stringify(item)).join(', ') : null)
+        || (error?.response?.status >= 500 && !hasBackendMessage
+          ? `Resume analysis service returned HTTP ${error.response.status} without an error message. Confirm the FastAPI service is running at ${import.meta.env.VITE_RESUME_API_URL || 'http://127.0.0.1:8000'} and check its server logs.`
+          : null)
         || error?.message
         || 'Failed to analyze resume';
       setError(typeof detail === 'string' ? detail : JSON.stringify(detail));
@@ -178,6 +199,39 @@ const ResumeUpload = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const unwrapResponse = (response) => response?.data?.data ?? response?.data ?? response ?? {};
+
+  const findResumeText = (value) => {
+    if (!value || typeof value !== 'object') return '';
+    const candidates = [
+      value.resume_text, value.extracted_text, value.extractedText,
+      value.text, value.full_text, value.fullText, value.content,
+      value.data?.resume_text, value.data?.extracted_text,
+      value.data?.text, value.result?.resume_text, value.result?.text,
+      value.analysis?.resume_text, value.analysis?.text,
+    ];
+    const textValue = candidates.find((candidate) => typeof candidate === 'string' && candidate.trim());
+    if (textValue) return textValue.trim();
+    for (const child of Object.values(value)) {
+      if (child && typeof child === 'object') {
+        const nested = findResumeText(child);
+        if (nested) return nested;
+      }
+    }
+    return '';
+  };
+
+  const normalizeRoles = (payload) => {
+    const value = unwrapResponse({ data: payload });
+    const candidates = [value.roles, value.recommended_roles, value.suggested_roles, value.discovered_roles, value.data?.roles, value.result?.roles];
+    const roles = candidates.find(Array.isArray) || (Array.isArray(value) ? value : []);
+    return roles.map((item) => {
+      if (typeof item === 'string') return { name: item, description: '' };
+      const name = item?.role || item?.title || item?.name || item?.job_title || item?.role_name;
+      return name ? { ...item, name: String(name), description: item.description || item.reason || item.match_reason || '' } : null;
+    }).filter(Boolean);
   };
 
   const handleAtsSubmit = async (e) => {
@@ -189,19 +243,73 @@ const ResumeUpload = () => {
 
     setLoading(true);
     setError('');
-    setProgress('Analyzing Resume...');
+    setProgress('Analyzing resume with backend...');
+    setDiscoveredRoles([]);
+    setSelectedRole('');
+    setRoleRequirements(null);
+    setResumeText('');
+    setResumeAnalysis(null);
+
     try {
-      setAtsResult(await analyzeResumeFile(file));
+      // Keep the existing local ATS score while the new backend workflow runs.
+      const [localAtsResult, backendResponse] = await Promise.all([
+        analyzeResumeFile(file).catch(() => null),
+        analyzeResumeWithBackend(file),
+      ]);
+      const analysis = unwrapResponse(backendResponse);
+      const extractedText = findResumeText(analysis);
+      setResumeAnalysis(analysis);
+      if (localAtsResult) setAtsResult(localAtsResult);
+      if (!extractedText) {
+        throw new Error('Resume analysis completed, but the response did not include extracted resume text. Please check that POST /resume/analyze returns resume_text (or extracted_text/text).');
+      }
+      setResumeText(extractedText);
+      setProgress('Finding suitable roles from your resume...');
+      const rolesResponse = await discoverRolesFromResume(extractedText);
+      const rolesPayload = unwrapResponse(rolesResponse);
+      const roles = normalizeRoles(rolesPayload);
+      setDiscoveredRoles(roles);
+      if (!roles.length) {
+        setError('Resume was analyzed, but no roles were returned. Check the response from POST /roles/discover.');
+      }
       setProgress('');
     } catch (analysisError) {
-      setAtsResult(null);
-      setError(analysisError instanceof Error
-        ? analysisError.message
-        : 'We could not analyze this resume. Please try another file.');
+      const backendData = analysisError?.response?.data;
+      const message = backendData?.detail || backendData?.message || backendData?.error || analysisError?.message || 'We could not analyze this resume. Please try again.';
+      setError(typeof message === 'string' ? message : JSON.stringify(message));
       setProgress('');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleRoleSelect = async (roleName) => {
+    if (!roleName || !resumeText) return;
+    setSelectedRole(roleName);
+    setRequirementsLoading(true);
+    setRoleRequirements(null);
+    setError('');
+    try {
+      const response = await getRoleRequirements(roleName, resumeText);
+      setRoleRequirements(unwrapResponse(response));
+    } catch (requirementsError) {
+      const backendData = requirementsError?.response?.data;
+      const message = backendData?.detail || backendData?.message || backendData?.error || requirementsError?.message || 'Could not load role requirements.';
+      setError(typeof message === 'string' ? message : JSON.stringify(message));
+    } finally {
+      setRequirementsLoading(false);
+    }
+  };
+
+  const renderValueList = (value) => {
+    if (Array.isArray(value)) {
+      return value.map((item, index) => {
+        const label = typeof item === 'string' ? item : item?.name || item?.skill || item?.concept || item?.title || item?.text || JSON.stringify(item);
+        return <li key={`${label}-${index}`}>{label}</li>;
+      });
+    }
+    if (typeof value === 'string' && value.trim()) return <li>{value}</li>;
+    return null;
   };
 
   // Helper to safely render experience
@@ -257,7 +365,7 @@ const ResumeUpload = () => {
           <header className="ats-heading">
             <span>RESUME CHECK</span>
             <h1>Upload Your Resume</h1>
-            <p>Upload your latest resume to check its ATS compatibility before starting your interview.</p>
+            <p>Upload your resume to analyze it, discover matching job roles, and view the skills required for a selected role.</p>
           </header>
 
           <form onSubmit={handleAtsSubmit}>
@@ -297,6 +405,11 @@ const ResumeUpload = () => {
                   onClick={() => {
                     setFile(null);
                     setAtsResult(null);
+                    setResumeAnalysis(null);
+                    setResumeText('');
+                    setDiscoveredRoles([]);
+                    setSelectedRole('');
+                    setRoleRequirements(null);
                     setError('');
                     const input = document.getElementById('ats-resume-upload');
                     if (input) input.value = '';
@@ -311,7 +424,7 @@ const ResumeUpload = () => {
             {loading && <div className="ats-message ats-progress" role="status">{progress || 'Analyzing Resume...'}</div>}
 
             <button type="submit" className="btn-primary ats-analyze-button" disabled={!file || loading}>
-              {loading ? 'Analyzing Resume...' : 'Analyze Resume'}
+              {loading ? (progress || 'Analyzing Resume...') : 'Analyze Resume & Discover Roles'}
             </button>
           </form>
 
@@ -346,6 +459,68 @@ const ResumeUpload = () => {
               >
                 Continue to Interview Resume Analysis <FaArrowRight />
               </button>
+            </section>
+          )}
+
+          {resumeAnalysis && (
+            <section className="ats-result" aria-live="polite" style={{ marginTop: 20 }}>
+              <div className="ats-score-heading">RESUME ANALYSIS</div>
+              <p style={{ color: '#5f4a40', marginTop: 8 }}>
+                Resume analysis succeeded. {resumeText ? `Extracted ${resumeText.length.toLocaleString()} characters of resume text.` : 'Extracted resume text was not found.'}
+              </p>
+              {Array.isArray(resumeAnalysis.skills) && resumeAnalysis.skills.length > 0 && (
+                <div className="ats-suggestions">
+                  <h2>Skills detected in your resume</h2>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    {resumeAnalysis.skills.map((skill, index) => <span key={`${skill}-${index}`} style={{ background: '#fff0e5', color: '#a94727', borderRadius: 20, padding: '5px 10px', fontSize: 13 }}>{typeof skill === 'string' ? skill : skill.name || skill.skill || JSON.stringify(skill)}</span>)}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+
+          {discoveredRoles.length > 0 && (
+            <section className="ats-result" aria-live="polite" style={{ marginTop: 20 }}>
+              <div className="ats-score-heading">MATCHING ROLE SUGGESTIONS</div>
+              <p style={{ color: '#5f4a40', marginTop: 8 }}>Choose a role to see its required skills, resume evidence, and concepts to learn.</p>
+              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
+                {discoveredRoles.map((role, index) => (
+                  <button
+                    key={`${role.name}-${index}`}
+                    type="button"
+                    onClick={() => handleRoleSelect(role.name)}
+                    disabled={requirementsLoading}
+                    aria-pressed={selectedRole === role.name}
+                    style={{ textAlign: 'left', padding: 14, borderRadius: 10, border: selectedRole === role.name ? '2px solid #f4511e' : '1px solid #ead8ca', background: selectedRole === role.name ? '#fff3e9' : '#fffdf9', cursor: requirementsLoading ? 'wait' : 'pointer', color: '#3b2924' }}
+                  >
+                    <strong>{role.name}</strong>
+                    {role.description && <span style={{ display: 'block', marginTop: 5, color: '#80685d', fontWeight: 400 }}>{role.description}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {requirementsLoading && <div className="ats-message ats-progress" role="status">Loading requirements for {selectedRole}...</div>}
+
+          {roleRequirements && (
+            <section className="ats-result" aria-live="polite" style={{ marginTop: 20 }}>
+              <div className="ats-score-heading">ROLE REQUIREMENTS: {selectedRole}</div>
+              {(() => {
+                const requirementData = roleRequirements.requirements || roleRequirements.data?.requirements || roleRequirements.result?.requirements || roleRequirements;
+                const skills = requirementData.required_skills || requirementData.skills || requirementData.technical_skills || requirementData.skill_requirements;
+                const evidence = requirementData.resume_evidence || requirementData.evidence || requirementData.matching_evidence || requirementData.skills_evidence;
+                const concepts = requirementData.concepts_to_learn || requirementData.concepts || requirementData.learning_topics || requirementData.knowledge_areas;
+                const otherKeys = Object.keys(requirementData).filter((key) => !['required_skills','skills','technical_skills','skill_requirements','resume_evidence','evidence','matching_evidence','skills_evidence','concepts_to_learn','concepts','learning_topics','knowledge_areas','role','title','description'].includes(key));
+                return <>
+                  {requirementData.description && <p style={{ margin: '10px 0', color: '#5f4a40' }}>{requirementData.description}</p>}
+                  {skills && <div className="ats-suggestions"><h2>Required skills</h2><ul>{renderValueList(skills)}</ul></div>}
+                  {evidence && <div className="ats-suggestions"><h2>Evidence from your resume</h2><ul>{renderValueList(evidence)}</ul></div>}
+                  {concepts && <div className="ats-suggestions"><h2>Concepts to learn</h2><ul>{renderValueList(concepts)}</ul></div>}
+                  {otherKeys.map((key) => <div className="ats-suggestions" key={key}><h2>{key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}</h2>{Array.isArray(requirementData[key]) ? <ul>{renderValueList(requirementData[key])}</ul> : <p>{typeof requirementData[key] === 'object' ? JSON.stringify(requirementData[key], null, 2) : String(requirementData[key])}</p>}</div>)}
+                  {!skills && !evidence && !concepts && otherKeys.length === 0 && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(requirementData, null, 2)}</pre>}
+                </>;
+              })()}
             </section>
           )}
         </section>

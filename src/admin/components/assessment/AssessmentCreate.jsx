@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { FaArrowLeft, FaPlus, FaTrash, FaSave, FaTimes } from "react-icons/fa";
 import { useAuth } from "../../../hooks/useAuth";
 import {
@@ -9,6 +9,8 @@ import {
   getTopics,
   getUsers,
 } from "../../services/api";
+import { matchesStudentFilters, normalizeStudent, normalizeStudentList, uniqueOptions } from "../../utils/studentDirectory";
+import { saveLocalAssignedAssessment, studentIdFromUser } from "../../../services/localAssignedAssessments";
 
 const CANDIDATE_EXAM_BASE_URL = "https://skillenginetest.stackenzo.com/exam";
 
@@ -47,6 +49,11 @@ const newSection = (type, sequence) => ({
 // "2026-09-28T22:30" -> "2026-09-28T22:30:00"
 const toApiDate = (v) =>
   v && v.length === 16 ? `${v}:00` : v;
+
+const semesterNumber = (value) => {
+  const match = String(value || "").match(/(?:semester\s*)?([12])(?:st|nd)?(?:\s*semester)?/i);
+  return match?.[1] || "";
+};
 
 
 /* ============================================================
@@ -460,6 +467,8 @@ function SectionEditor({
 
 export default function AssessmentCreate() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
 
   const { user } = useAuth();
 
@@ -498,6 +507,10 @@ export default function AssessmentCreate() {
   const [selectedUsers, setSelectedUsers] =
     useState([]);
 
+  const [studentFilters, setStudentFilters] = useState({ institution: [], campus: [], course: [], year: [], department: [], section: [], semester: [] });
+  const [studentSearch, setStudentSearch] = useState("");
+  const [confirmAssignment, setConfirmAssignment] = useState(false);
+
   const [loadingUsers, setLoadingUsers] =
     useState(false);
 
@@ -520,6 +533,123 @@ export default function AssessmentCreate() {
 
   const [created, setCreated] =
     useState(null);
+  const [createdLocally, setCreatedLocally] = useState(false);
+
+  const userIdOf = (candidate) => normalizeStudent(candidate).id;
+
+  const institutionalStudents = useMemo(() => normalizeStudentList(users), [users]);
+  const routedCohortStudents = Array.isArray(location.state?.cohortStudents) ? location.state.cohortStudents : [];
+  const cohortFields = ["institution", "campus", "course", "year", "department", "section"];
+  const hasDashboardCohort = cohortFields.every((field) => Boolean(searchParams.get(field)));
+  const studentOptions = useMemo(() => {
+    const fields = Object.keys(studentFilters);
+    return Object.fromEntries(fields.map((field, index) => {
+      const parents = Object.fromEntries(fields.slice(0, index).map((parent) => [parent, studentFilters[parent]]));
+      const matching = institutionalStudents.filter((student) => matchesStudentFilters(student, parents));
+      if (field === "section") {
+        return [field, [...new Set(matching.map((student) => student.section).filter(Boolean))].sort().map((value) => ({ value, label: `Section ${value}` }))];
+      }
+      if (field === "semester") {
+        return [field, [{ value: "1", label: "Semester 1" }, { value: "2", label: "Semester 2" }]];
+      }
+      return [field, uniqueOptions(matching, field)];
+    }));
+  }, [institutionalStudents, studentFilters]);
+  const filteredInstitutionalStudents = useMemo(() => {
+    const query = studentSearch.trim().toLowerCase();
+    return institutionalStudents.filter((student) =>
+      Object.entries(studentFilters).every(([field, selected]) => {
+        if (!selected.length) return true;
+        const value = field === "section" ? student.section : field === "semester" ? semesterNumber(student.semester.label) : student[field]?.key;
+        return selected.includes(String(value || ""));
+      }) &&
+      (!query || [student.name, student.studentId, student.email].some((value) => String(value || "").toLowerCase().includes(query)))
+    );
+  }, [institutionalStudents, studentFilters, studentSearch]);
+  const selectedStudentIds = new Set(selectedUsers.map(userIdOf));
+  const cohortLabels = Object.fromEntries(cohortFields.map((field) => {
+    const selected = studentFilters[field][0];
+    const option = (studentOptions[field] || []).find((item) => item.value === selected);
+    if (field === "section") return [field, selected ? `Section ${selected}` : ""];
+    return [field, option?.label || filteredInstitutionalStudents[0]?.[field]?.label || selected || ""];
+  }));
+
+  const updateStudentFilter = (field, value) => {
+    const fields = Object.keys(studentFilters);
+    const index = fields.indexOf(field);
+    const next = Object.fromEntries(fields.map((key, childIndex) => [key, childIndex < index ? studentFilters[key] : key === field ? value : []]));
+    setStudentFilters(next);
+    setSelectedUsers([]);
+    setConfirmAssignment(false);
+  };
+
+  const toggleStudentFilterValue = (field, value) => {
+    const current = studentFilters[field];
+    if (field === "semester") {
+      setStudentFilters((filters) => ({ ...filters, semester: current.includes(value) ? [] : [value] }));
+      return;
+    }
+    updateStudentFilter(field, current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
+  };
+
+  useEffect(() => {
+    const fields = [...cohortFields, "semester"];
+    const next = Object.fromEntries(fields.map((field) => {
+      const value = searchParams.get(field);
+      if (!value) return [field, []];
+      if (field === "semester") return [field, [semesterNumber(value) || value]];
+      if (field === "year" && institutionalStudents.length) {
+        const matchingYear = institutionalStudents.find((student) => student.year.key === value || student.year.label === value)?.year;
+        return [field, [matchingYear?.key || value]];
+      }
+      return [field, [value]];
+    }));
+    setStudentFilters(next);
+    if (cohortFields.every((field) => searchParams.has(field)) && routedCohortStudents.length) {
+      const routedIds = new Set(routedCohortStudents.map((student) => String(student.id || student.user_id || student.student_id || "")));
+      setSelectedUsers(users.filter((candidate) => routedIds.has(userIdOf(candidate))));
+    } else if (cohortFields.every((field) => searchParams.has(field)) && institutionalStudents.length) {
+      const selectedIds = new Set(institutionalStudents.filter((student) =>
+        Object.entries(next).every(([field, selected]) => {
+          if (!selected.length) return true;
+          const value = field === "section"
+            ? student.section
+            : field === "semester"
+              ? semesterNumber(student.semester.label)
+              : student[field]?.key;
+          return selected.includes(String(value || ""));
+        })
+      ).map((student) => student.id));
+      setSelectedUsers(users.filter((candidate) => selectedIds.has(userIdOf(candidate))));
+    } else {
+      setSelectedUsers([]);
+    }
+    setConfirmAssignment(false);
+  }, [searchParams, institutionalStudents, users, location.state]);
+
+  const toggleFilteredStudent = (student) => {
+    const raw = users.find((item) => userIdOf(item) === student.id);
+    if (raw) toggleUser(raw);
+  };
+
+  const selectFilteredStudents = () => {
+    const filteredIds = new Set(filteredInstitutionalStudents.map((student) => student.id));
+    setSelectedUsers((current) => {
+      const currentIds = new Set(current.map(userIdOf));
+      return [...current, ...users.filter((candidate) => {
+        const id = userIdOf(candidate);
+        return filteredIds.has(id) && !currentIds.has(id);
+      })];
+    });
+    setConfirmAssignment(false);
+  };
+
+  const deselectFilteredStudents = () => {
+    const filteredIds = new Set(filteredInstitutionalStudents.map((student) => student.id));
+    setSelectedUsers((current) => current.filter((candidate) =>
+      !filteredIds.has(userIdOf(candidate))));
+    setConfirmAssignment(false);
+  };
 
 
   /* ============================================================
@@ -737,19 +867,12 @@ export default function AssessmentCreate() {
   ============================================================ */
 
   const toggleUser = (selectedUser) => {
+    const selectedId = userIdOf(selectedUser);
     setSelectedUsers((current) => {
-      const exists = current.some(
-        (item) =>
-          String(item.id) ===
-          String(selectedUser.id)
-      );
+      const exists = current.some((item) => userIdOf(item) === selectedId);
 
       if (exists) {
-        return current.filter(
-          (item) =>
-            String(item.id) !==
-            String(selectedUser.id)
-        );
+        return current.filter((item) => userIdOf(item) !== selectedId);
       }
 
       return [
@@ -758,19 +881,17 @@ export default function AssessmentCreate() {
       ];
     });
 
+    setConfirmAssignment(false);
     setError("");
   };
 
 
   const removeUser = (userId) => {
     setSelectedUsers((current) =>
-      current.filter(
-        (item) =>
-          String(item.id) !==
-          String(userId)
-      )
+      current.filter((item) => userIdOf(item) !== String(userId))
     );
 
+    setConfirmAssignment(false);
     setError("");
   };
 
@@ -834,15 +955,7 @@ export default function AssessmentCreate() {
 
   const candidateIds = useMemo(
     () =>
-      selectedUsers
-        .map(
-          (selectedUser) =>
-            selectedUser.id ||
-            selectedUser.user_id ||
-            selectedUser._id ||
-            selectedUser.userId
-        )
-        .filter(Boolean),
+      selectedUsers.map(userIdOf).filter(Boolean),
     [selectedUsers]
   );
 
@@ -944,6 +1057,11 @@ export default function AssessmentCreate() {
 
     if (problem) {
       setError(problem);
+      return;
+    }
+
+    if (!confirmAssignment) {
+      setConfirmAssignment(true);
       return;
     }
 
@@ -1059,13 +1177,17 @@ export default function AssessmentCreate() {
       candidates:
         selectedUsers.map(
           (selectedUser) => ({
-            student_id:
-              selectedUser.id ||
-              selectedUser.user_id ||
-              selectedUser._id ||
-              selectedUser.userId,
+            student_id: userIdOf(selectedUser),
           })
         ),
+
+      ...(studentFilters.institution[0] ? { institution_id: studentFilters.institution[0] } : {}),
+      ...(studentFilters.campus[0] ? { campus_id: studentFilters.campus[0] } : {}),
+      ...(studentFilters.course[0] ? { course_id: studentFilters.course[0] } : {}),
+      ...(studentFilters.year[0] ? { year: studentFilters.year[0] } : {}),
+      ...(studentFilters.department[0] ? { department_id: studentFilters.department[0] } : {}),
+      ...(studentFilters.section[0] ? { section: studentFilters.section[0] } : {}),
+      ...(studentFilters.semester[0] ? { semester: studentFilters.semester[0] } : {}),
     };
 
     console.log(
@@ -1077,12 +1199,61 @@ export default function AssessmentCreate() {
     setError("");
 
     try {
-      const data =
-        await createAssessment(
-          payload
-        );
+      let data = null;
+      let apiError = null;
+      try {
+        data = await createAssessment(payload);
+      } catch (err) {
+        apiError = err;
+      }
 
-      setCreated(data);
+      const localId = `local-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+      const persistedId = String(data?.id || data?.assessment_id || data?.assessmentId || data?._id || localId);
+      const assignedStudents = selectedUsers.map((student) => {
+        const normalized = normalizeStudent(student);
+        return {
+          id: userIdOf(student),
+          name: normalized.name,
+          studentId: normalized.studentId,
+          email: normalized.email,
+          institution: normalized.institution.label,
+          department: normalized.department.label,
+          section: normalized.section,
+        };
+      }).filter((student) => student.id);
+      const localRecord = {
+        id: persistedId,
+        title: form.title.trim(),
+        description: form.description.trim(),
+        institutionId: studentFilters.institution[0] || "",
+        institution: cohortLabels.institution || "",
+        campusId: studentFilters.campus[0] || "",
+        campus: cohortLabels.campus || "",
+        courseId: studentFilters.course[0] || "",
+        course: cohortLabels.course || "",
+        year: studentFilters.year[0] || "",
+        yearLabel: cohortLabels.year || "",
+        departmentId: studentFilters.department[0] || "",
+        department: cohortLabels.department || "",
+        section: studentFilters.section[0] || "",
+        semester: studentFilters.semester[0] || "",
+        studentIds: [...new Set(assignedStudents.map((student) => student.id))],
+        students: assignedStudents,
+        details: {
+          ...form,
+          sections: payload.sections,
+          question_count: payload.sections.reduce((total, section) => total + section.question_count, 0),
+          assessment_type: [...new Set(payload.sections.map((section) => section.section_type))].join(", "),
+        },
+        token: findDeep(data, ["token", "access_token", "jwt"]),
+        link: findDeep(data, ["exam_link", "assessment_link", "link", "url"]),
+        createdAt: new Date().toISOString(),
+      };
+
+      saveLocalAssignedAssessment(localRecord);
+      setCreated(data || localRecord);
+      setCreatedLocally(true);
+      if (apiError) console.warn("Assessment saved locally; remote API was unavailable.", apiError);
     } catch (err) {
       console.error(
         "Create assessment error:",
@@ -1262,6 +1433,41 @@ export default function AssessmentCreate() {
       <p className="text-gray-500 mb-6">
         Project details, MCQ section and coding section are created together in one request.
       </p>
+
+      {hasDashboardCohort && (
+        <div className="mb-6 rounded-xl border border-orange-200 bg-white p-5">
+          <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-gray-800">Selected student cohort</h2>
+              <p className="mt-1 text-sm text-gray-500">Students matching the dashboard filters are assigned automatically.</p>
+            </div>
+            <span className="rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-800">Total Students: {filteredInstitutionalStudents.length}</span>
+          </div>
+          <dl className="mb-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {[["Institution", "institution"], ["Campus", "campus"], ["Course", "course"], ["Year", "year"], ["Department", "department"], ["Section", "section"]].map(([label, field]) => (
+              <div key={field}><dt className="font-semibold text-gray-700">{label}</dt><dd className="mt-0.5 text-gray-600">{cohortLabels[field] || "—"}</dd></div>
+            ))}
+          </dl>
+          {loadingUsers ? <p className="py-5 text-center text-sm text-gray-500">Loading matching students...</p> : (
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+              <table className="w-full text-left text-sm">
+                <thead className="bg-gray-50 text-xs uppercase text-gray-600"><tr>
+                  {["Student Name", "Student ID", "Email", "Institution", "Department", "Section"].map((heading) => <th key={heading} className="px-3 py-2.5 font-semibold">{heading}</th>)}
+                </tr></thead>
+                <tbody>{filteredInstitutionalStudents.map((student) => <tr key={student.id} className="border-t border-gray-100">
+                  <td className="px-3 py-2.5 font-medium text-gray-800">{student.name || "Unnamed student"}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{student.studentId}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{student.email || "—"}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{student.institution.label || "—"}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{student.department.label || "—"}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{student.section || "—"}</td>
+                </tr>)}</tbody>
+              </table>
+              {!filteredInstitutionalStudents.length && !loadingUsers && <p className="p-5 text-center text-sm text-gray-500">No existing students match all selected dashboard filters.</p>}
+            </div>
+          )}
+        </div>
+      )}
 
 
       {/* Error */}
@@ -1552,137 +1758,71 @@ export default function AssessmentCreate() {
 
 
         {/* =====================================================
-            USERS / CANDIDATES
+            INSTITUTIONAL STUDENT SELECTION
         ====================================================== */}
 
         <div className="border border-gray-200 rounded-xl p-6 bg-white">
-
-          <div className="flex items-center justify-between mb-2">
-
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
-              <h2 className="text-lg font-bold text-gray-800">
-                Assign Users
-              </h2>
-
-              <p className="text-sm text-gray-500 mt-1">
-                Select one or more users who should be assigned this assessment.
-              </p>
+              <h2 className="text-lg font-bold text-gray-800">Assign Students</h2>
+              <p className="text-sm text-gray-500 mt-1">Filter students by their institutional record, then select individuals or everyone in the filtered group.</p>
             </div>
-
-            {selectedUsers.length > 0 && (
-              <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-semibold">
-                {selectedUsers.length} selected
-              </span>
-            )}
-
+            <span className="px-3 py-1 bg-orange-100 text-orange-700 rounded-full text-sm font-semibold">{selectedUsers.length} selected</span>
           </div>
 
-
-          {/* User Dropdown */}
-          <div className="mt-4">
-
-            <label className={labelCls}>
-              Select Users *
-            </label>
-
-            <select
-              className={selectCls}
-              value=""
-              disabled={loadingUsers}
-              onChange={(e) => {
-
-                const userId =
-                  e.target.value;
-
-                if (!userId) {
-                  return;
-                }
-
-                const foundUser =
-                  users.find(
-                    (item) =>
-                      String(
-                        item.id
-                      ) ===
-                      String(
-                        userId
-                      )
-                  );
-
-                if (foundUser) {
-                  toggleUser(
-                    foundUser
-                  );
-                }
-              }}
-            >
-
-              <option value="">
-                {loadingUsers
-                  ? "Loading users..."
-                  : users.length === 0
-                  ? "No users available"
-                  : "Select a user"}
-              </option>
-
-
-              {users.map(
-                (userItem) => {
-
-                  const userId =
-                    userItem.id ||
-                    userItem.user_id ||
-                    userItem._id ||
-                    userItem.userId;
-
-                  const alreadySelected =
-                    selectedUsers.some(
-                      (selected) =>
-                        String(
-                          selected.id ||
-                            selected.user_id ||
-                            selected._id ||
-                            selected.userId
-                        ) ===
-                        String(
-                          userId
-                        )
-                    );
-
-                  const name =
-                    getUserName(
-                      userItem
-                    );
-
-                  const email =
-                    getUserEmail(
-                      userItem
-                    );
-
+          {hasDashboardCohort ? <p className="text-sm text-gray-600">{selectedUsers.length} matching students are selected automatically from the dashboard cohort.</p> : loadingUsers ? <p className="text-sm text-gray-500">Loading students...</p> : users.length === 0 ? <p className="text-sm text-gray-500">No user records are available.</p> : (
+            <>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                {[
+                  ["institution", "Institution"], ["campus", "Campus"], ["course", "Course"], ["year", "Year"], ["department", "Department"], ["section", "Section"], ["semester", "Semester"],
+                ].map(([field, label], index, fields) => {
+                  const available = studentOptions[field] || [];
+                  const parentField = fields[index - 1]?.[0];
+                  const enabled = field === "semester"
+                    ? studentFilters.year.length > 0
+                    : index === 0 || (studentFilters[parentField] || []).length > 0;
                   return (
-                    <option
-                      key={userId}
-                      value={userId}
-                      disabled={
-                        alreadySelected
-                      }
-                    >
-                      {name}
-                      {email
-                        ? ` - ${email}`
-                        : ""}
-                    </option>
+                    <fieldset key={field} disabled={!enabled} className="min-w-0 rounded-lg border border-gray-200 p-3 disabled:opacity-50">
+                      <legend className="px-1 text-xs font-semibold text-gray-600">{label}</legend>
+                      <div className="max-h-36 space-y-2 overflow-y-auto">
+                        {available.length ? available.map((option) => (
+                          <label key={option.value} className="flex items-start gap-2 text-sm text-gray-700">
+                            <input type="checkbox" checked={studentFilters[field].includes(option.value)} onChange={() => toggleStudentFilterValue(field, option.value)} className="mt-0.5 accent-orange-500" />
+                            <span>{option.label}</span>
+                          </label>
+                        )) : <p className="text-xs text-gray-400">No options</p>}
+                      </div>
+                    </fieldset>
                   );
-                }
-              )}
+                })}
+              </div>
 
-            </select>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                <input className={`${inputCls} sm:max-w-sm`} value={studentSearch} onChange={(event) => setStudentSearch(event.target.value)} placeholder="Search name, ID, or email" aria-label="Search students" />
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={selectFilteredStudents} disabled={!filteredInstitutionalStudents.length} className="px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 disabled:opacity-50">Select all {filteredInstitutionalStudents.length} filtered</button>
+                  <button type="button" onClick={deselectFilteredStudents} disabled={!filteredInstitutionalStudents.some((student) => selectedStudentIds.has(student.id))} className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">Deselect filtered</button>
+                  <button type="button" onClick={() => { setSelectedUsers([]); setConfirmAssignment(false); setStudentFilters({ institution: [], campus: [], course: [], year: [], department: [], section: [], semester: [] }); setStudentSearch(""); }} className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">Clear selections</button>
+                </div>
+              </div>
 
-          </div>
+              <p className="mt-3 text-xs text-gray-500">{filteredInstitutionalStudents.length} matching students</p>
+              <div className="mt-2 max-h-72 overflow-y-auto rounded-lg border border-gray-200">
+                {filteredInstitutionalStudents.length ? filteredInstitutionalStudents.map((student) => (
+                  <label key={student.id} className="flex cursor-pointer items-center gap-3 border-b border-gray-100 px-3 py-2.5 last:border-0 hover:bg-gray-50">
+                    <input type="checkbox" checked={selectedStudentIds.has(student.id)} onChange={() => toggleFilteredStudent(student)} className="accent-orange-500" />
+                    <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-gray-800">{student.name || "Unnamed student"}</span><span className="block truncate text-xs text-gray-500">{student.studentId}{student.email ? ` · ${student.email}` : ""}</span></span>
+                    <span className="hidden text-right text-xs text-gray-500 md:block">{[student.institution.label, student.campus.label, student.year.label, student.course.label, student.department.label].filter(Boolean).join(" · ") || "Institutional details unavailable"}</span>
+                  </label>
+                )) : <p className="p-6 text-center text-sm text-gray-500">No students match the selected filters.</p>}
+              </div>
+              <p className="mt-2 text-xs text-gray-500">Institutional options and student details are derived from the users API. Missing academic details are not generated.</p>
+            </>
+          )}
 
 
           {/* Selected Users */}
-          <div className="mt-5">
+          {!hasDashboardCohort && <div className="mt-5">
 
             {selectedUsers.length >
             0 ? (
@@ -1714,10 +1854,7 @@ export default function AssessmentCreate() {
                     (selectedUser) => {
 
                       const userId =
-                        selectedUser.id ||
-                        selectedUser.user_id ||
-                        selectedUser._id ||
-                        selectedUser.userId;
+                        userIdOf(selectedUser);
 
                       const name =
                         getUserName(
@@ -1792,8 +1929,24 @@ export default function AssessmentCreate() {
               </div>
             )}
 
-          </div>
+          </div>}
 
+        </div>
+
+        <div className="border border-gray-200 rounded-xl p-6 bg-white">
+          <h2 className="text-lg font-bold text-gray-800">Assignment Summary</h2>
+          <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+            {[["Institutions", "institution"], ["Campuses", "campus"], ["Courses", "course"], ["Years", "year"], ["Departments", "department"], ["Sections", "section"], ["Semester", "semester"]].map(([label, field]) => {
+              const labels = new Map((studentOptions[field] || []).map((option) => [option.value, option.label]));
+              return <div key={field}><p className="font-semibold text-gray-700">{label}</p><p className="mt-1 text-gray-500">{studentFilters[field].length ? studentFilters[field].map((value) => labels.get(value) || value).join(", ") : "All matching"}</p></div>;
+            })}
+            <div><p className="font-semibold text-gray-700">Total selected students</p><p className="mt-1 text-gray-500">{selectedUsers.length}</p></div>
+          </div>
+          {selectedUsers.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{selectedUsers.map((selectedUser) => {
+            const userId = userIdOf(selectedUser);
+            return <span key={userId} className="rounded-full border border-orange-200 bg-orange-50 px-3 py-1 text-xs text-orange-800">{getUserName(selectedUser)} <button type="button" onClick={() => removeUser(userId)} className="ml-1 font-bold" aria-label={`Remove ${getUserName(selectedUser)}`}>×</button></span>;
+          })}</div>}
+          {confirmAssignment && <div role="alert" className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-900"><span>Confirm creating “{form.title.trim()}” for {selectedUsers.length} selected students?</span><button type="button" onClick={() => setConfirmAssignment(false)} className="font-semibold underline">Review selection</button></div>}
         </div>
 
 
@@ -1813,7 +1966,9 @@ export default function AssessmentCreate() {
 
           {saving
             ? "Creating..."
-            : "Create Assessment"}
+            : confirmAssignment
+              ? `Confirm assignment to ${selectedUsers.length} students`
+              : "Create Assessment"}
         </button>
 
       </form>
