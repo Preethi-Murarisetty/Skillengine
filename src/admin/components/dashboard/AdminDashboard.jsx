@@ -4,12 +4,13 @@ import { getAssessments, getUsers } from "../../services/api";
 import { hasInstitutionalMetadata, matchesStudentFilters, normalizeInstitutionalUsers, uniqueOptions } from "../../utils/studentDirectory";
 import { LOCAL_INSTITUTIONAL_CATALOG } from "../../data/institutionalCatalog";
 import { readLocalAssignedAssessments } from "../../../services/localAssignedAssessments";
+import { Activity, Building2, Check, CircleDashed, Eye, FilePenLine, Layers3, MapPin, Search, UserCheck, UserRound, UserX, BookOpen } from "lucide-react";
 
 // Dashboard records are adapted from the authenticated users/assessment APIs.
 
 const ALL = "ALL";
 // Filter levels, parent -> child. Changing one resets everything after it.
-const LEVELS = ["institutionId", "campusId", "courseId", "year", "department", "section", "semester"];
+const LEVELS = ["institutionId", "campusId", "courseId", "year", "department", "section"];
 const FILTER_QUERY_KEYS = {
   institutionId: "institution",
   campusId: "campus",
@@ -17,7 +18,6 @@ const FILTER_QUERY_KEYS = {
   year: "year",
   department: "department",
   section: "section",
-  semester: "semester",
 };
 
 const byId = (list, id) => list.find((x) => x.id === id);
@@ -166,12 +166,28 @@ const normalizeAssessment = (assessment) => ({
 const assignmentState = (candidate) => {
   const result = candidate?.result || candidate?.submission || candidate?.attempt_result || candidate?.attemptResult || candidate?.attempt || {};
   const rawStatus = String(result?.result_status || result?.status || candidate?.result_status || candidate?.attempt_status || candidate?.attemptStatus || candidate?.progress || candidate?.status || "").toLowerCase().replace(/[\s-]+/g, "_");
-  if (["absent", "missed", "no_show"].includes(rawStatus)) return "absent";
+  if (["expired", "exam_expired", "time_expired", "missed", "absent", "no_show"].includes(rawStatus) || candidate?.expired_at || candidate?.expiredAt || result?.expired_at || result?.expiredAt) return "expired";
   if (["submitted", "completed", "graded", "passed", "failed"].includes(rawStatus) || candidate?.submitted_at || candidate?.submittedAt || result?.submitted_at || result?.submittedAt || result?.score !== undefined || candidate?.score !== undefined) return "submitted";
-  if (["in_progress", "started", "ongoing", "attempting"].includes(rawStatus) || candidate?.started_at || candidate?.startedAt || result?.started_at || result?.startedAt) return "in_progress";
+  if (["in_progress", "started", "ongoing", "attempting", "writing", "taking_exam", "in_exam"].includes(rawStatus) || candidate?.started_at || candidate?.startedAt || result?.started_at || result?.startedAt) return "in_progress";
   if (["not_started", "pending", "assigned", "invited"].includes(rawStatus)) return "not_started";
   return "unknown";
 };
+
+const latestActivity = (assignment) => {
+  const result = assignment.candidate?.result || assignment.candidate?.submission || assignment.candidate?.attempt_result || assignment.candidate?.attemptResult || assignment.candidate?.attempt || {};
+  const candidate = assignment.candidate || {};
+  const timestamp = [candidate.updated_at, candidate.updatedAt, result.updated_at, result.updatedAt, candidate.submitted_at, candidate.submittedAt, result.submitted_at, result.submittedAt, candidate.started_at, candidate.startedAt, result.started_at, result.startedAt, assignment.assessment.createdAt]
+    .find((value) => value && Number.isFinite(new Date(value).getTime()));
+  return timestamp ? new Date(timestamp).toLocaleString() : "—";
+};
+
+const activityStatus = (assignment) => ({
+  in_progress: { label: "Writing Exam", tone: "orange" },
+  not_started: { label: "Not Started", tone: "purple" },
+  submitted: { label: "Completed", tone: "green" },
+  expired: { label: "Exam Expired", tone: "blue" },
+  unknown: { label: "Assigned", tone: "gray" },
+}[assignment.state] || { label: "Assigned", tone: "gray" });
 
 const isUpcoming = (assessment, now = Date.now()) => {
   const timestamp = new Date(assessment.date).getTime();
@@ -250,7 +266,7 @@ const Stat = ({ label, value, note, onClick }) => {
 const Stats = ({ children, className = "" }) => <div className={`mb-6 grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6 ${className}`}>{children}</div>;
 
 const Badge = ({ tone = "green", children }) => (
-  <span className={`rounded-full px-2 py-1 text-xs font-semibold ${{ green: "bg-green-50 text-green-700", gray: "bg-gray-100 text-gray-600", red: "bg-red-50 text-red-600" }[tone]}`}>{children}</span>
+  <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${{ green: "bg-green-50 text-green-700", gray: "bg-gray-100 text-gray-600", red: "bg-red-50 text-red-600", yellow: "bg-amber-50 text-amber-700", orange: "bg-orange-50 text-orange-700", purple: "bg-violet-50 text-violet-700", blue: "bg-blue-50 text-blue-700" }[tone]}`}>{children}</span>
 );
 const StatusBadge = ({ status }) => <Badge tone={status === "Active" ? "green" : "gray"}>{status}</Badge>;
 const Outcome = ({ passed }) => <Badge tone={passed ? "green" : "red"}>{passed ? "Pass" : "Fail"}</Badge>;
@@ -315,7 +331,7 @@ function Modal({ title, onClose, children }) {
 
 const TABS = ["Dashboard", "Overview", "Students", "Institutional Student Data", "Assessments", "Academics", "Institutions"];
 const emptyFilters = () => Object.fromEntries(LEVELS.map((l) => [l, ALL]));
-const emptyDirectoryFilters = () => ({ institution: "", campus: "", course: "", year: "", department: "", section: "", semester: "" });
+const emptyDirectoryFilters = () => ({ institution: "", campus: "", course: "", year: "", department: "", section: "" });
 const emptyStudentForm = (f = emptyFilters()) => ({
   name: "", email: "", phone: "",
   ...Object.fromEntries(LEVELS.map((l) => [l, f[l] === ALL ? "" : f[l]])),
@@ -470,6 +486,10 @@ export default function AdminDashboard() {
   const [performanceSearch, setPerformanceSearch] = useState("");
   const [performanceSort, setPerformanceSort] = useState({ field: "student", direction: "asc" });
   const [performancePage, setPerformancePage] = useState(1);
+  const [activitySearch, setActivitySearch] = useState("");
+  const [activityExamFilter, setActivityExamFilter] = useState(ALL);
+  const [activityStatusFilter, setActivityStatusFilter] = useState(ALL);
+  const [activityPage, setActivityPage] = useState(1);
   const [modal, setModal] = useState(null); // "student" | "institution" | null
   const [openStudent, setOpenStudent] = useState(null);
   const [notice, setNotice] = useState("");
@@ -513,6 +533,10 @@ export default function AdminDashboard() {
     const nextFilters = { ...filters, [level]: value };
     LEVELS.slice(LEVELS.indexOf(level) + 1).forEach((child) => (nextFilters[child] = ALL));
     setFilters(nextFilters);
+    if (tab === "Overview") {
+      setAppliedFilters(nextFilters);
+      setAppliedSearch(search);
+    }
     skipAppliedFilterRestore.current = true;
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
@@ -569,7 +593,6 @@ export default function AdminDashboard() {
   const course = byId(courses, filters.courseId);
   const yearOptions = course?.years ?? [];
   const selectedYear = yearOptions.find((year) => year.name === filters.year);
-  const semesterOptions = selectedYear?.semesters ?? [];
   const departmentOptions = selectedYear?.departments || [];
   const selectedDepartment = departmentOptions.find((department) => departmentValue(department) === String(filters.department) || department.name === filters.department);
   const sectionOptions = selectedDepartment?.sections ?? [];
@@ -578,7 +601,7 @@ export default function AdminDashboard() {
     appliedFilters.campusId !== ALL && byId(campuses, appliedFilters.campusId)?.name,
     appliedFilters.courseId !== ALL && byId(courses, appliedFilters.courseId)?.name,
     appliedFilters.year !== ALL && appliedFilters.year,
-    appliedFilters.semester !== ALL && appliedFilters.semester,
+    appliedFilters.department !== ALL && (departmentOptions.find((department) => departmentValue(department) === String(appliedFilters.department) || department.name === appliedFilters.department)?.name || appliedFilters.department),
     appliedFilters.department !== ALL && (departmentOptions.find((department) => departmentValue(department) === String(appliedFilters.department) || department.name === appliedFilters.department)?.name || appliedFilters.department),
     appliedFilters.section !== ALL && `Section ${appliedFilters.section}`,
   ].filter(Boolean);
@@ -609,6 +632,19 @@ export default function AdminDashboard() {
       (!q || [s.id, s.name, s.email].some((v) => String(v).toLowerCase().includes(q))));
   }, [students, appliedFilters, appliedSearch]);
 
+  const overviewStudents = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return students.filter((student) =>
+      LEVELS.every((field) => {
+        if (filters[field] === ALL) return true;
+        const value = field === "department" ? student.departmentId : student[field];
+        return String(value || "") === String(filters[field]);
+      }) &&
+      (!query || [student.id, student.studentId, student.name, student.email].some((value) => String(value || "").toLowerCase().includes(query)))
+    );
+  }, [students, filters, search]);
+  const hasOverviewCohort = filters.institutionId !== ALL && filters.campusId !== ALL;
+
   const assessmentCohortStudents = useMemo(() => students.filter((student) =>
     ["institutionId", "campusId", "courseId", "year", "department", "section"].every((field) => {
       if (filters[field] === ALL) return false;
@@ -624,7 +660,6 @@ export default function AdminDashboard() {
       (appliedFilters.campusId === ALL || student.campusId === appliedFilters.campusId) &&
       (appliedFilters.courseId === ALL || student.courseId === appliedFilters.courseId) &&
       (appliedFilters.year === ALL || student.year === appliedFilters.year) &&
-      (appliedFilters.semester === ALL || student.semester === appliedFilters.semester) &&
       (appliedFilters.department === ALL || student.departmentId === appliedFilters.department) &&
       (appliedFilters.section === ALL || student.section === appliedFilters.section));
     const courseMatches = Boolean(assessment.courseId) && appliedCourseOptions.some((courseItem) =>
@@ -635,7 +670,6 @@ export default function AdminDashboard() {
     return courseMatches &&
       (appliedFilters.courseId === ALL || assessment.courseId === appliedFilters.courseId) &&
       matchesCohort("year", appliedFilters.year) &&
-      matchesCohort("semester", appliedFilters.semester) &&
       (appliedFilters.department === ALL || assessment.departmentId === appliedFilters.department || eligibleStudents.some((student) => assignedIds.has(student.id) && student.departmentId === appliedFilters.department)) &&
       (appliedFilters.section === ALL || eligibleStudents.some((student) => assignedIds.has(student.id)));
   });
@@ -653,7 +687,6 @@ export default function AdminDashboard() {
     const eligibleAssessments = shownAssessments.filter((assessment) =>
       assessment.courseId === student.courseId &&
       (!assessment.year || assessment.year === student.year) &&
-      (!assessment.semester || assessment.semester === student.semester) &&
       assessmentCandidates(assessment).some((candidate) => candidateStudentId(candidate) === student.id));
     const attemptedResults = allRows.filter((result) =>
       result.studentId === student.id && eligibleAssessments.some((assessment) => assessment.id === result.assessmentId));
@@ -673,8 +706,46 @@ export default function AdminDashboard() {
 
   const assignmentRows = shownAssessments.flatMap((assessment) =>
     assessmentCandidates(assessment).map((candidate) => ({ assessment, candidate, studentId: candidateStudentId(candidate), state: assignmentState(candidate) })));
+  const dashboardAssignmentRows = assessments.flatMap((assessment) =>
+    assessmentCandidates(assessment).map((candidate) => ({ assessment, candidate, studentId: candidateStudentId(candidate), state: assignmentState(candidate) })));
   const visibleStudentIds = new Set(shownStudents.map((student) => student.id));
   const knownAssignmentRows = assignmentRows.filter((assignment) => assignment.studentId && visibleStudentIds.has(assignment.studentId));
+  const studentActivityRows = dashboardAssignmentRows.map((assignment) => {
+    const snapshot = assignment.assessment.students?.find((student) => String(student.id || student.student_id || "") === assignment.studentId);
+    const student = byId(students, assignment.studentId) || (snapshot ? {
+      id: assignment.studentId,
+      studentId: snapshot.studentId || assignment.studentId,
+      name: snapshot.name || assignment.candidate?.name || "Unnamed student",
+      institution: { label: snapshot.institution || assignment.assessment.institutionName || "—" },
+      campus: { label: snapshot.campus || assignment.assessment.campusName || "—" },
+      course: { label: snapshot.course || assignment.assessment.courseName || "—" },
+      year: { label: snapshot.year || assignment.assessment.year || "—" },
+      department: { label: snapshot.department || assignment.assessment.department || "—" },
+      section: snapshot.section || assignment.assessment.section || "—",
+      status: snapshot.status || "Unknown",
+    } : null);
+    return { ...assignment, student };
+  }).filter((assignment) => assignment.student && (!activitySearch.trim() || [assignment.student.name, assignment.student.studentId, assignment.student.id, assignment.assessment.title].some((value) => String(value || "").toLowerCase().includes(activitySearch.trim().toLowerCase()))) && (activityExamFilter === ALL || assignment.state === activityExamFilter) && (activityStatusFilter === ALL || assignment.student.status === activityStatusFilter))
+    .sort((left, right) => {
+      const priority = { in_progress: 0, not_started: 1, unknown: 2, submitted: 3, expired: 4 };
+      return priority[left.state] - priority[right.state] || left.student.name.localeCompare(right.student.name);
+    });
+  const activityPageSize = 5;
+  const activityPageCount = Math.max(1, Math.ceil(studentActivityRows.length / activityPageSize));
+  const pagedActivityRows = studentActivityRows.slice((activityPage - 1) * activityPageSize, activityPage * activityPageSize);
+  const activityUniqueCount = (state) => new Set(dashboardAssignmentRows.filter((assignment) => assignment.state === state).map((assignment) => assignment.studentId).filter(Boolean)).size;
+  const activityActiveCount = students.filter((student) => student.status === "Active").length;
+  const activityInactiveCount = students.filter((student) => student.status === "Inactive").length;
+  const departmentCount = new Set(courses.flatMap((courseItem) =>
+    (courseItem.years || []).flatMap((year) =>
+      (year.departments || []).map((department) => [
+        courseItem.institutionId,
+        courseItem.campusId,
+        courseItem.name,
+        String(department.id || department.name || "").trim().toLowerCase(),
+      ].join("::"))
+    )
+  ).filter((key) => key.replace(/:/g, "").trim())).size;
   const assignmentProgress = {
     total: knownAssignmentRows.length,
     notStarted: knownAssignmentRows.filter((assignment) => assignment.state === "not_started").length,
@@ -865,8 +936,9 @@ export default function AdminDashboard() {
     });
     setAppliedFilters({ ...filters });
     setAppliedSearch(search);
+    const selectedStudents = tab === "Overview" ? overviewStudents : assessmentCohortStudents;
     navigate(`/admin/assessment?${query.toString()}`, {
-      state: { cohortStudents: assessmentCohortStudents.map((student) => ({ ...student })) },
+      state: { cohortStudents: selectedStudents.map((student) => ({ ...student })) },
     });
   };
 
@@ -888,7 +960,8 @@ export default function AdminDashboard() {
   // CSV exports follow the current filters
   const exportStudents = () =>
     downloadCSV("students.csv",
-      ["Student ID", "Name", "Email", "Phone", "Institution", "Campus", "Course", "Year", "Semester", "Department", "Section", "Status", "Average"],
+      ["Student ID", "Name", "Email", "Phone", "Institution", "Campus", "Course", "Year", "Department", "Section", "Status", "Average"],
+        { header: "Course / year", render: (s) => `${byId(courses, s.courseId)?.name} · ${s.year}` },
       shownStudents.map((s) => [s.id, s.name, s.email, s.phone, byId(institutions, s.institutionId)?.name, byId(campuses, s.campusId)?.name, byId(courses, s.courseId)?.name, s.year, s.semester, s.department, s.section, s.status, studentAverage(s.id)]));
 
   const exportResults = () =>
@@ -928,21 +1001,26 @@ export default function AdminDashboard() {
       <div className="min-w-0 w-full">
         {/* ---------- HEADER ---------- */}
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
-          <h1 className="text-2xl font-bold">{tab}</h1>
+          <div>
+            <h1 className="text-2xl font-bold">{tab}</h1>
+            {tab === "Dashboard" && <p className="mt-1 text-sm text-gray-500">Overview of student activity and assessment progress</p>}
+          </div>
           <div className="flex gap-2">
             {tab === "Institutional Student Data" && <Button onClick={resetDirectoryFilters}>Reset filters</Button>}
-            {["Dashboard", "Overview", "Students", "Assessments", "Academics"].includes(tab) && <>
+            {["Overview", "Students", "Assessments", "Academics"].includes(tab) && <>
               <Button onClick={() => setFiltersOpen((open) => !open)}>{filtersOpen ? "Hide filters" : "Show filters"}</Button>
               <Button onClick={resetFilters}>Reset filters</Button>
             </>}
             {tab === "Students" && <Button primary onClick={openAddStudent}>+ Add student</Button>}
+            {tab === "Dashboard" && <Button primary onClick={createAssessmentForFilters}><FilePenLine size={16} /> Create Assessment</Button>}
+            {tab === "Overview" && <Button primary disabled={!hasOverviewCohort || !overviewStudents.length || dashboardLoading} onClick={createAssessmentForFilters}><FilePenLine size={16} /> Create Assessment</Button>}
             {tab === "Assessments" && <Button primary onClick={createAssessmentForFilters}>Create Assessment</Button>}
             {tab === "Institutions" && <Button primary onClick={() => setModal("institution")}>+ Add institution</Button>}
           </div>
         </div>
 
         {/* ---------- FILTERS ---------- */}
-        {["Dashboard", "Overview", "Students", "Assessments", "Academics"].includes(tab) && filtersOpen && (
+        {["Overview", "Students", "Assessments", "Academics"].includes(tab) && filtersOpen && (
           <div className="mb-6 grid grid-cols-2 gap-3 rounded-xl border border-gray-200 bg-white p-4 lg:grid-cols-4">
             <Select label="Institution" value={filters.institutionId} onChange={(v) => setFilter("institutionId", v)} placeholder={institutions.length ? "All institutions" : "No institution data"} loading={dashboardLoading} options={opts(institutions)} />
             <Select label="Campus" value={filters.campusId} onChange={(v) => setFilter("campusId", v)} placeholder="Select institution first" disabled={filters.institutionId === ALL} loading={dashboardLoading} options={opts(campusOptions)} />
@@ -950,7 +1028,6 @@ export default function AdminDashboard() {
             <Select label="Year" value={filters.year} onChange={(v) => setFilter("year", v)} placeholder="Select course first" disabled={filters.courseId === ALL} loading={dashboardLoading} options={opts(yearOptions, nameOf, nameOf)} />
             <Select label="Department" value={filters.department} onChange={(v) => setFilter("department", v)} placeholder={filters.year === ALL ? "Select year first" : "All departments"} disabled={filters.year === ALL} loading={dashboardLoading} options={opts(departmentOptions, departmentValue, nameOf)} />
             <Select label="Section" value={filters.section} onChange={(v) => setFilter("section", v)} placeholder="Select department first" disabled={!selectedDepartment} loading={dashboardLoading} options={sectionOptions.map((section) => ({ value: section, label: `Section ${section}` }))} />
-            <Select label="Semester" value={filters.semester} onChange={(v) => setFilter("semester", v)} placeholder={filters.year === ALL ? "Select year first" : semesterOptions.length ? "All semesters" : "No semester data"} disabled={filters.year === ALL} loading={dashboardLoading} options={opts(semesterOptions, nameOf, nameOf)} />
             <div className="col-span-2">
               <Field label="Search name, ID, email">
                 <input className={inputCls} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search students..." />
@@ -960,7 +1037,7 @@ export default function AdminDashboard() {
               <div className="flex flex-wrap gap-2" aria-label="Applied filters">
                 {activeFilterLabels.length ? activeFilterLabels.map((label) => <Badge key={label} tone="gray">{label}</Badge>) : <span className="text-xs text-gray-500">No filters applied</span>}
               </div>
-              <Button primary onClick={applyFilters}>Apply filters</Button>
+              {tab !== "Overview" && <Button primary onClick={applyFilters}>Apply filters</Button>}
               {tab === "Dashboard" && <>
                 <Button primary disabled={!hasCompleteAssessmentCohort || dashboardLoading} onClick={createAssessmentForFilters}>Create Assessment</Button>
                 <Button disabled={!hasStudentPerformanceScope || dashboardLoading} onClick={openStudentPerformance}>Student Performance</Button>
@@ -970,7 +1047,7 @@ export default function AdminDashboard() {
           </div>
         )}
 
-        {["Dashboard", "Overview", "Students", "Assessments", "Academics"].includes(tab) && !filtersOpen && (
+        {["Overview", "Students", "Assessments", "Academics"].includes(tab) && !filtersOpen && (
           <div className="mb-5 flex flex-wrap items-center gap-2 text-xs" aria-label="Applied filters">
             <span className="font-semibold text-gray-600">Applied filters:</span>
             {activeFilterLabels.length ? activeFilterLabels.map((label) => <Badge key={label} tone="gray">{label}</Badge>) : <span className="text-gray-500">None</span>}
@@ -981,7 +1058,7 @@ export default function AdminDashboard() {
           <>
             <div className="mb-6 grid grid-cols-1 gap-3 rounded-xl border border-gray-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5">
               {[
-                ["institution", "Institution"], ["campus", "Campus"], ["course", "Course"], ["year", "Year"], ["department", "Department"], ["section", "Section"], ["semester", "Semester"],
+                ["institution", "Institution"], ["campus", "Campus"], ["course", "Course"], ["year", "Year"], ["department", "Department"], ["section", "Section"],
               ].map(([field, label], index, fields) => (
                 <Select
                   key={field}
@@ -1029,7 +1106,126 @@ export default function AdminDashboard() {
         )}
 
         {/* ---------- DASHBOARD ---------- */}
-        {tab === "Dashboard" && (
+        {tab === "Dashboard" && !dashboardLoading && (
+          <div className="space-y-6">
+            {dashboardError && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{dashboardError}</p>}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+              {[
+                { label: "Total Students", value: students.length, icon: <UserRound size={18} />, tone: "orange" },
+                { label: "Writing Exam", value: activityUniqueCount("in_progress"), icon: <FilePenLine size={18} />, tone: "orange" },
+                { label: "Not Started", value: activityUniqueCount("not_started"), icon: <CircleDashed size={18} />, tone: "purple" },
+                { label: "Completed", value: activityUniqueCount("submitted"), icon: <Check size={18} />, tone: "green" },
+                { label: "Active Students", value: activityActiveCount, icon: <UserCheck size={18} />, tone: "blue" },
+                { label: "Inactive Students", value: activityInactiveCount, icon: <UserX size={18} />, tone: "gray" },
+              ].map((item) => {
+                const tones = {
+                  orange: "border-orange-200 bg-orange-50 text-orange-700",
+                  purple: "border-violet-200 bg-violet-50 text-violet-700",
+                  green: "border-green-200 bg-green-50 text-green-700",
+                  blue: "border-blue-200 bg-blue-50 text-blue-700",
+                  gray: "border-gray-200 bg-gray-50 text-gray-600",
+                };
+                return <section key={item.label} className={`min-w-0 rounded-xl border bg-white p-4 shadow-sm ${tones[item.tone].split(" ")[0]}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-xs font-medium text-gray-500">{item.label}</span>
+                    <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tones[item.tone]}`}>{item.icon}</span>
+                  </div>
+                  <p className="mt-3 text-2xl font-bold text-gray-800">{item.value}</p>
+                  <p className="mt-1 text-xs text-gray-500">{item.label}</p>
+                </section>;
+              })}
+            </div>
+
+            <section aria-label="Institutional summary">
+              <h2 className="mb-3 text-sm font-semibold text-gray-700">Institutional Summary</h2>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                {[
+                  { label: "Institutions", value: institutions.length, icon: <Building2 size={18} />, tone: "orange" },
+                  { label: "Campuses", value: campuses.length, icon: <Layers3 size={18} />, tone: "purple" },
+                  { label: "Departments", value: departmentCount, icon: <MapPin size={18} />, tone: "blue" },
+                  { label: "Courses", value: courses.length, icon: <BookOpen size={18} />, tone: "green" },
+                ].map((item) => {
+                  const tones = {
+                    orange: "border-orange-200 bg-orange-50 text-orange-700",
+                    purple: "border-violet-200 bg-violet-50 text-violet-700",
+                    blue: "border-blue-200 bg-blue-50 text-blue-700",
+                    green: "border-green-200 bg-green-50 text-green-700",
+                  };
+                  return <article key={item.label} className={`min-w-0 rounded-xl border bg-white p-4 shadow-sm ${tones[item.tone].split(" ")[0]}`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium text-gray-500">{item.label}</span>
+                      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full ${tones[item.tone]}`}>{item.icon}</span>
+                    </div>
+                    <p className="mt-3 text-2xl font-bold text-gray-800">{item.value}</p>
+                  </article>;
+                })}
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-xl border border-orange-200 bg-white shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-orange-100 px-4 py-4">
+                <div>
+                  <h2 className="font-semibold text-gray-800">Student Activity</h2>
+                  <p className="mt-1 text-xs text-gray-500">{studentActivityRows.length} assigned assessment records</p>
+                </div>
+                <div className="flex w-full flex-wrap gap-2 sm:w-auto">
+                  <label className="flex min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 sm:flex-none">
+                    <Search size={16} className="shrink-0 text-gray-400" />
+                    <input className="w-full min-w-0 border-0 text-sm outline-none" value={activitySearch} onChange={(event) => { setActivitySearch(event.target.value); setActivityPage(1); }} placeholder="Search name, ID, or assessment" aria-label="Search student activity" />
+                  </label>
+                  <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" value={activityExamFilter} onChange={(event) => { setActivityExamFilter(event.target.value); setActivityPage(1); }} aria-label="Filter by exam status">
+                    <option value={ALL}>All exam statuses</option><option value="in_progress">Writing Exam</option><option value="not_started">Not Started</option><option value="submitted">Completed</option><option value="unknown">Assigned</option><option value="expired">Exam Expired</option>
+                  </select>
+                  <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" value={activityStatusFilter} onChange={(event) => { setActivityStatusFilter(event.target.value); setActivityPage(1); }} aria-label="Filter by active status">
+                    <option value={ALL}>All active statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option>
+                  </select>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[1500px] text-left text-xs">
+                  <thead><tr className="bg-orange-50 text-[11px] uppercase text-gray-600">
+                    {["S.No", "Student Name", "Student ID / Roll No", "Institution", "Course", "Year", "Department", "Section", "Assigned Assessment", "Exam Status", "Active Status", "Last Activity", "Actions"].map((heading) => <th key={heading} className="whitespace-nowrap px-3 py-3 font-semibold">{heading}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {pagedActivityRows.map((assignment, index) => {
+                      const status = activityStatus(assignment);
+                      const active = ["Active", "Inactive"].includes(assignment.student.status) ? assignment.student.status : "Unknown";
+                      return <tr key={`${assignment.assessment.id}:${assignment.studentId}:${index}`} className="border-t border-gray-100 hover:bg-orange-50/40">
+                        <td className="px-3 py-3 text-gray-500">{(activityPage - 1) * activityPageSize + index + 1}</td>
+                        <td className="px-3 py-3 font-semibold text-gray-800">{assignment.student.name}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.studentId || assignment.student.id}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.institution?.label || "—"}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.course?.label || "—"}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.year?.label || assignment.student.year || "—"}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.department?.label || assignment.student.department || "—"}</td>
+                        <td className="px-3 py-3 text-gray-600">{assignment.student.section || "—"}</td>
+                        <td className="max-w-[200px] truncate px-3 py-3 font-medium text-gray-700" title={assignment.assessment.title}>{assignment.assessment.title}</td>
+                        <td className="px-3 py-3"><Badge tone={status.tone}>{status.label}</Badge></td>
+                        <td className="px-3 py-3"><Badge tone={active === "Active" ? "green" : active === "Inactive" ? "gray" : "gray"}>{active}</Badge></td>
+                        <td className="whitespace-nowrap px-3 py-3 text-gray-500">{latestActivity(assignment)}</td>
+                        <td className="px-3 py-3"><button type="button" title="View student details" aria-label={`View ${assignment.student.name}`} onClick={() => setOpenStudent(assignment.student)} className="grid h-8 w-8 place-items-center rounded-md border border-orange-200 text-orange-700 hover:bg-orange-50"><Eye size={15} /></button></td>
+                      </tr>;
+                    })}
+                    {!pagedActivityRows.length && <tr><td colSpan={13} className="px-4 py-12 text-center text-sm text-gray-500">No assigned student activity matches these filters.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-orange-100 px-4 py-3 text-sm text-gray-500">
+                <span>Showing {studentActivityRows.length ? (activityPage - 1) * activityPageSize + 1 : 0}–{Math.min(activityPage * activityPageSize, studentActivityRows.length)} of {studentActivityRows.length} students</span>
+                <div className="flex items-center gap-1">
+                  <Button small disabled={activityPage <= 1} onClick={() => setActivityPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                  {Array.from({ length: Math.min(5, activityPageCount) }, (_, index) => {
+                    const page = Math.max(1, Math.min(activityPageCount - 4, activityPage - 2)) + index;
+                    return <button type="button" key={page} onClick={() => setActivityPage(page)} aria-current={activityPage === page ? "page" : undefined} className={`h-8 min-w-8 rounded-md border px-2 text-sm ${activityPage === page ? "border-orange-500 bg-orange-500 text-white" : "border-gray-200 bg-white text-gray-600 hover:bg-orange-50"}`}>{page}</button>;
+                  })}
+                  <Button small disabled={activityPage >= activityPageCount} onClick={() => setActivityPage((page) => Math.min(activityPageCount, page + 1))}>Next</Button>
+                </div>
+              </div>
+            </section>
+          </div>
+        )}
+
+        {tab === "Dashboard" && false && (
           <>
             {dashboardLoading ? <p className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-500">Loading dashboard data...</p> : <>
               {dashboardError && <p role="alert" className="mb-5 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{dashboardError}</p>}
@@ -1118,16 +1314,28 @@ export default function AdminDashboard() {
                   ]} /> : <p className="p-5 text-sm text-gray-500">No upcoming assessments with a future schedule are available.</p>}
                 </Card>
 
-                <Card title="Student assessment progress" subtitle="Current progress from assigned-student records">
-                  {assignmentProgress.hasAssignments ? <div className="space-y-3 p-5">
-                    <p className="text-sm text-gray-600">{assignmentProgress.total} assigned assessment-student records · {assignmentProgress.unknown} status unavailable</p>
-                    {[["Not started", assignmentProgress.notStarted, "bg-gray-400"], ["In progress", assignmentProgress.inProgress, "bg-amber-500"], ["Submitted", assignmentProgress.submitted, "bg-green-600"], ["Absent", assignmentProgress.absent, "bg-red-500"]].map(([label, count, color]) => (
-                      <div key={label}>
-                        <div className="mb-1 flex justify-between text-xs text-gray-600"><span>{label}</span><span>{count}</span></div>
-                        <div className="h-2 overflow-hidden rounded-full bg-gray-100"><div className={`h-full ${color}`} style={{ width: `${assignmentProgress.total ? (count / assignmentProgress.total) * 100 : 0}%` }} /></div>
+                <Card title="Assigned student activity" subtitle="Exam status for students in the selected filters">
+                  {assignmentProgress.hasAssignments ? <>
+                    <div className="space-y-3 p-5">
+                      <p className="text-sm text-gray-600">{assignmentProgress.total} assigned assessment-student records · {assignmentProgress.inProgress} writing now · {assignmentProgress.unknown} status unavailable</p>
+                      <div className="flex h-3 overflow-hidden rounded-full bg-gray-100" role="img" aria-label={`${assignmentProgress.inProgress} in progress, ${assignmentProgress.notStarted} not started, ${assignmentProgress.submitted} submitted, ${assignmentProgress.absent} absent, ${assignmentProgress.unknown} unknown`}>
+                        {[[assignmentProgress.inProgress, "bg-amber-500"], [assignmentProgress.notStarted, "bg-gray-400"], [assignmentProgress.submitted, "bg-green-600"], [assignmentProgress.absent, "bg-red-500"], [assignmentProgress.unknown, "bg-sky-500"]].map(([count, color], index) => count > 0 && (
+                          <div key={`${color}-${index}`} className={color} style={{ width: `${(count / assignmentProgress.total) * 100}%` }} />
+                        ))}
                       </div>
-                    ))}
-                  </div> : <p className="p-5 text-sm text-gray-500">Assignment totals and student progress statuses are not included in the assessment records returned by the current API.</p>}
+                      <div className="flex flex-wrap gap-x-4 gap-y-2 text-xs text-gray-600">
+                        {[ ["Writing now", assignmentProgress.inProgress, "bg-amber-500"], ["Not started", assignmentProgress.notStarted, "bg-gray-400"], ["Submitted", assignmentProgress.submitted, "bg-green-600"], ["Absent", assignmentProgress.absent, "bg-red-500"], ["Unknown", assignmentProgress.unknown, "bg-sky-500"] ].map(([label, count, color]) => (
+                          <span key={label} className="inline-flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${color}`} />{label}: {count}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <Table rows={studentActivityRows.slice(0, 8)} empty="No assigned students match these filters." columns={[
+                      { header: "Student", render: (assignment) => <div><p className="font-semibold">{assignment.student.name}</p><p className="text-xs text-gray-500">{assignment.student.id}</p></div> },
+                      { header: "Assessment", render: (assignment) => assignment.assessment.title },
+                      { header: "Department / section", render: (assignment) => `${assignment.student.department} · ${assignment.student.section || "—"}` },
+                      { header: "Exam activity", render: (assignment) => <Badge tone={assignment.state === "in_progress" ? "yellow" : assignment.state === "submitted" ? "green" : assignment.state === "absent" ? "red" : "gray"}>{assignment.state === "in_progress" ? "Writing now" : assignment.state === "not_started" ? "Not started" : assignment.state === "submitted" ? "Submitted" : assignment.state === "absent" ? "Absent" : "Unknown"}</Badge> },
+                    ]} />
+                  </> : <p className="p-5 text-sm text-gray-500">No assigned student records match these filters. Assignment and attempt status are provided by the assessment API.</p>}
                 </Card>
               </div>
 
@@ -1170,8 +1378,8 @@ export default function AdminDashboard() {
 
         {/* ---------- OVERVIEW ---------- */}
         {tab === "Overview" && (
-          !hasStudentPerformanceScope ? (
-            <p className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-600">Select an institution, course, and department on the dashboard to view student overview.</p>
+          !hasOverviewCohort ? (
+            <p className="rounded-xl border border-gray-200 bg-white p-8 text-center text-sm text-gray-600">Select an institution and campus to view matching students.</p>
           ) : (
             <Card title="Student assessment overview" subtitle={`${studentAssessmentSummary.length} students matching the Dashboard filters`}>
               <p className="border-b border-gray-100 px-4 py-3 text-sm text-gray-600">

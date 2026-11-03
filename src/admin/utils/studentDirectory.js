@@ -124,7 +124,9 @@ export const matchesStudentFilters = (student, filters) =>
   Object.entries(filters).every(([field, selected]) => {
     if (!selected?.length) return true;
     const value = field === "section" ? student.section : student[field]?.key;
-    return selected.map(String).includes(String(value || ""));
+    const selectedValues = selected.map(String);
+    return selectedValues.includes(String(value || "")) ||
+      (field === "year" && selectedValues.includes(String(student.year?.label || "")));
   });
 
 export const hasInstitutionalMetadata = (students) =>

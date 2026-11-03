@@ -9,6 +9,7 @@ import {
   getTopics,
   getUsers,
 } from "../../services/api";
+import { LOCAL_INSTITUTIONAL_CATALOG } from "../../data/institutionalCatalog";
 import { matchesStudentFilters, normalizeStudent, normalizeStudentList, uniqueOptions } from "../../utils/studentDirectory";
 import { saveLocalAssignedAssessment, studentIdFromUser } from "../../../services/localAssignedAssessments";
 
@@ -49,12 +50,6 @@ const newSection = (type, sequence) => ({
 // "2026-09-28T22:30" -> "2026-09-28T22:30:00"
 const toApiDate = (v) =>
   v && v.length === 16 ? `${v}:00` : v;
-
-const semesterNumber = (value) => {
-  const match = String(value || "").match(/(?:semester\s*)?([12])(?:st|nd)?(?:\s*semester)?/i);
-  return match?.[1] || "";
-};
-
 
 /* ============================================================
    SECTION EDITOR
@@ -507,7 +502,7 @@ export default function AssessmentCreate() {
   const [selectedUsers, setSelectedUsers] =
     useState([]);
 
-  const [studentFilters, setStudentFilters] = useState({ institution: [], campus: [], course: [], year: [], department: [], section: [], semester: [] });
+  const [studentFilters, setStudentFilters] = useState({ institution: [], campus: [], course: [], year: [], department: [], section: [] });
   const [studentSearch, setStudentSearch] = useState("");
   const [confirmAssignment, setConfirmAssignment] = useState(false);
 
@@ -540,19 +535,65 @@ export default function AssessmentCreate() {
   const institutionalStudents = useMemo(() => normalizeStudentList(users), [users]);
   const routedCohortStudents = Array.isArray(location.state?.cohortStudents) ? location.state.cohortStudents : [];
   const cohortFields = ["institution", "campus", "course", "year", "department", "section"];
-  const hasDashboardCohort = cohortFields.every((field) => Boolean(searchParams.get(field)));
+  const hasDashboardCohort = routedCohortStudents.length > 0 || cohortFields.every((field) => Boolean(searchParams.get(field)));
   const studentOptions = useMemo(() => {
     const fields = Object.keys(studentFilters);
     return Object.fromEntries(fields.map((field, index) => {
       const parents = Object.fromEntries(fields.slice(0, index).map((parent) => [parent, studentFilters[parent]]));
       const matching = institutionalStudents.filter((student) => matchesStudentFilters(student, parents));
+      const configuredCourses = LOCAL_INSTITUTIONAL_CATALOG.courses.filter((course) =>
+        (!parents.institution?.length || parents.institution.includes(course.institutionId)) &&
+        (!parents.campus?.length || parents.campus.includes(course.campusId)) &&
+        (!parents.course?.length || parents.course.includes(course.id))
+      );
+      const selectedYearMatches = (year) => !parents.year?.length ||
+        parents.year.includes(String(year.name || "")) ||
+        matching.some((student) => parents.year.includes(student.year.key) && student.year.label === year.name);
+      let configuredOptions = [];
+      if (field === "institution") {
+        configuredOptions = LOCAL_INSTITUTIONAL_CATALOG.institutions.map((item) => ({ value: item.id, label: item.name }));
+      } else if (field === "campus") {
+        configuredOptions = LOCAL_INSTITUTIONAL_CATALOG.campuses
+          .filter((item) => !parents.institution?.length || parents.institution.includes(item.institutionId))
+          .map((item) => ({ value: item.id, label: item.name }));
+      } else if (field === "course") {
+        configuredOptions = configuredCourses.map((item) => ({ value: item.id, label: item.name }));
+      } else if (field === "year") {
+        configuredOptions = configuredCourses.flatMap((course) => course.years || [])
+          .map((year) => ({ value: String(year.name || ""), label: String(year.name || "") }));
+      } else if (field === "department") {
+        configuredOptions = configuredCourses.flatMap((course) => (course.years || [])
+          .filter(selectedYearMatches)
+          .flatMap((year) => year.departments || []))
+          .map((department) => ({ value: String(department.id || department.name || ""), label: department.name || String(department.id || "") }));
+      } else if (field === "section") {
+        configuredOptions = configuredCourses.flatMap((course) => (course.years || [])
+          .filter(selectedYearMatches)
+          .flatMap((year) => year.departments || [])
+          .filter((department) => !parents.department?.length || parents.department.includes(String(department.id || department.name || "")) || parents.department.includes(String(department.name || "")))
+          .flatMap((department) => department.sections || []))
+          .map((section) => ({ value: String(section), label: `Section ${section}` }));
+      }
+      const mergeOptions = (liveOptions) => {
+        const merged = new Map(liveOptions.map((option) => [String(option.value), option]));
+        const labels = new Set(liveOptions.map((option) => option.label.toLowerCase()));
+        configuredOptions.forEach((option) => {
+          const label = option.label.toLowerCase();
+          if (!merged.has(String(option.value)) && (field !== "year" || !labels.has(label))) {
+            merged.set(String(option.value), option);
+            labels.add(label);
+          }
+        });
+        return [...merged.values()].sort((a, b) => a.label.localeCompare(b.label));
+      };
+      if (field === "year") {
+        return [field, mergeOptions(uniqueOptions(matching, field))];
+      }
       if (field === "section") {
-        return [field, [...new Set(matching.map((student) => student.section).filter(Boolean))].sort().map((value) => ({ value, label: `Section ${value}` }))];
+        const liveOptions = [...new Set(matching.map((student) => student.section).filter(Boolean))].map((value) => ({ value, label: `Section ${value}` }));
+        return [field, mergeOptions(liveOptions)];
       }
-      if (field === "semester") {
-        return [field, [{ value: "1", label: "Semester 1" }, { value: "2", label: "Semester 2" }]];
-      }
-      return [field, uniqueOptions(matching, field)];
+      return [field, mergeOptions(uniqueOptions(matching, field))];
     }));
   }, [institutionalStudents, studentFilters]);
   const filteredInstitutionalStudents = useMemo(() => {
@@ -560,8 +601,8 @@ export default function AssessmentCreate() {
     return institutionalStudents.filter((student) =>
       Object.entries(studentFilters).every(([field, selected]) => {
         if (!selected.length) return true;
-        const value = field === "section" ? student.section : field === "semester" ? semesterNumber(student.semester.label) : student[field]?.key;
-        return selected.includes(String(value || ""));
+        const value = field === "section" ? student.section : student[field]?.key;
+        return selected.includes(String(value || "")) || (field === "year" && selected.includes(String(student.year?.label || "")));
       }) &&
       (!query || [student.name, student.studentId, student.email].some((value) => String(value || "").toLowerCase().includes(query)))
     );
@@ -585,19 +626,14 @@ export default function AssessmentCreate() {
 
   const toggleStudentFilterValue = (field, value) => {
     const current = studentFilters[field];
-    if (field === "semester") {
-      setStudentFilters((filters) => ({ ...filters, semester: current.includes(value) ? [] : [value] }));
-      return;
-    }
     updateStudentFilter(field, current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   };
 
   useEffect(() => {
-    const fields = [...cohortFields, "semester"];
+    const fields = cohortFields;
     const next = Object.fromEntries(fields.map((field) => {
       const value = searchParams.get(field);
       if (!value) return [field, []];
-      if (field === "semester") return [field, [semesterNumber(value) || value]];
       if (field === "year" && institutionalStudents.length) {
         const matchingYear = institutionalStudents.find((student) => student.year.key === value || student.year.label === value)?.year;
         return [field, [matchingYear?.key || value]];
@@ -605,19 +641,15 @@ export default function AssessmentCreate() {
       return [field, [value]];
     }));
     setStudentFilters(next);
-    if (cohortFields.every((field) => searchParams.has(field)) && routedCohortStudents.length) {
+    if (routedCohortStudents.length) {
       const routedIds = new Set(routedCohortStudents.map((student) => String(student.id || student.user_id || student.student_id || "")));
       setSelectedUsers(users.filter((candidate) => routedIds.has(userIdOf(candidate))));
     } else if (cohortFields.every((field) => searchParams.has(field)) && institutionalStudents.length) {
       const selectedIds = new Set(institutionalStudents.filter((student) =>
         Object.entries(next).every(([field, selected]) => {
           if (!selected.length) return true;
-          const value = field === "section"
-            ? student.section
-            : field === "semester"
-              ? semesterNumber(student.semester.label)
-              : student[field]?.key;
-          return selected.includes(String(value || ""));
+          const value = field === "section" ? student.section : student[field]?.key;
+          return selected.includes(String(value || "")) || (field === "year" && selected.includes(String(student.year?.label || "")));
         })
       ).map((student) => student.id));
       setSelectedUsers(users.filter((candidate) => selectedIds.has(userIdOf(candidate))));
@@ -1187,7 +1219,6 @@ export default function AssessmentCreate() {
       ...(studentFilters.year[0] ? { year: studentFilters.year[0] } : {}),
       ...(studentFilters.department[0] ? { department_id: studentFilters.department[0] } : {}),
       ...(studentFilters.section[0] ? { section: studentFilters.section[0] } : {}),
-      ...(studentFilters.semester[0] ? { semester: studentFilters.semester[0] } : {}),
     };
 
     console.log(
@@ -1236,7 +1267,6 @@ export default function AssessmentCreate() {
         departmentId: studentFilters.department[0] || "",
         department: cohortLabels.department || "",
         section: studentFilters.section[0] || "",
-        semester: studentFilters.semester[0] || "",
         studentIds: [...new Set(assignedStudents.map((student) => student.id))],
         students: assignedStudents,
         details: {
@@ -1774,13 +1804,11 @@ export default function AssessmentCreate() {
             <>
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  ["institution", "Institution"], ["campus", "Campus"], ["course", "Course"], ["year", "Year"], ["department", "Department"], ["section", "Section"], ["semester", "Semester"],
+                  ["institution", "Institution"], ["campus", "Campus"], ["course", "Course"], ["year", "Year"], ["department", "Department"], ["section", "Section"],
                 ].map(([field, label], index, fields) => {
                   const available = studentOptions[field] || [];
                   const parentField = fields[index - 1]?.[0];
-                  const enabled = field === "semester"
-                    ? studentFilters.year.length > 0
-                    : index === 0 || (studentFilters[parentField] || []).length > 0;
+                  const enabled = index === 0 || (studentFilters[parentField] || []).length > 0;
                   return (
                     <fieldset key={field} disabled={!enabled} className="min-w-0 rounded-lg border border-gray-200 p-3 disabled:opacity-50">
                       <legend className="px-1 text-xs font-semibold text-gray-600">{label}</legend>
@@ -1802,7 +1830,7 @@ export default function AssessmentCreate() {
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={selectFilteredStudents} disabled={!filteredInstitutionalStudents.length} className="px-3 py-2 text-sm font-semibold text-orange-700 hover:bg-orange-50 disabled:opacity-50">Select all {filteredInstitutionalStudents.length} filtered</button>
                   <button type="button" onClick={deselectFilteredStudents} disabled={!filteredInstitutionalStudents.some((student) => selectedStudentIds.has(student.id))} className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">Deselect filtered</button>
-                  <button type="button" onClick={() => { setSelectedUsers([]); setConfirmAssignment(false); setStudentFilters({ institution: [], campus: [], course: [], year: [], department: [], section: [], semester: [] }); setStudentSearch(""); }} className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">Clear selections</button>
+                  <button type="button" onClick={() => { setSelectedUsers([]); setConfirmAssignment(false); setStudentFilters({ institution: [], campus: [], course: [], year: [], department: [], section: [] }); setStudentSearch(""); }} className="px-3 py-2 text-sm font-semibold text-gray-600 hover:bg-gray-50">Clear selections</button>
                 </div>
               </div>
 
@@ -1936,7 +1964,7 @@ export default function AssessmentCreate() {
         <div className="border border-gray-200 rounded-xl p-6 bg-white">
           <h2 className="text-lg font-bold text-gray-800">Assignment Summary</h2>
           <div className="mt-3 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
-            {[["Institutions", "institution"], ["Campuses", "campus"], ["Courses", "course"], ["Years", "year"], ["Departments", "department"], ["Sections", "section"], ["Semester", "semester"]].map(([label, field]) => {
+            {[["Institutions", "institution"], ["Campuses", "campus"], ["Courses", "course"], ["Years", "year"], ["Departments", "department"], ["Sections", "section"]].map(([label, field]) => {
               const labels = new Map((studentOptions[field] || []).map((option) => [option.value, option.label]));
               return <div key={field}><p className="font-semibold text-gray-700">{label}</p><p className="mt-1 text-gray-500">{studentFilters[field].length ? studentFilters[field].map((value) => labels.get(value) || value).join(", ") : "All matching"}</p></div>;
             })}

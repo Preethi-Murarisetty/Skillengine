@@ -24,7 +24,9 @@ const T = {
   headerHeight: 64,
   orange: "#F47721",
   orangeSoft: "#fff0e3",
-  orangeHover: "#3a3734",
+  orangeHover: "#f9e4d5",
+  sidebar: "#f2d6c1",
+  sidebarBorder: "#e5bea0",
   text: "#292524",
   textMuted: "#78716c",
   border: "#e8e1da",
@@ -103,8 +105,8 @@ function AdminLayout() {
     textDecoration: "none",
     fontSize: nested ? 13 : 14,
     fontWeight: active ? 600 : 500,
-    color: active ? "#ffffff" : "#e7e5e4",
-    background: active ? "#3a3734" : "transparent",
+    color: active ? "#9a3412" : T.text,
+    background: active ? T.orangeSoft : "transparent",
     marginBottom: 4,
     boxSizing: "border-box",
     position: "relative",
@@ -122,7 +124,7 @@ function AdminLayout() {
       <style>{`
         .se-sidebar-link:hover {
           background: ${T.orangeHover};
-          color: #ffffff;
+          color: ${T.text};
         }
 
         .se-sidebar-link.active::before {
@@ -207,8 +209,8 @@ function AdminLayout() {
             flexDirection: "column",
             width: T.sidebarWidth,
             flexShrink: 0,
-            background: "#242424",
-            borderRight: "1px solid #373431",
+            background: T.sidebar,
+            borderRight: `1px solid ${T.sidebarBorder}`,
             height: "100vh",
             position: "sticky",
             top: 0,
@@ -223,7 +225,7 @@ function AdminLayout() {
               gap: 12,
               height: T.headerHeight,
               padding: "0 16px",
-              borderBottom: "1px solid #373431",
+              borderBottom: `1px solid ${T.sidebarBorder}`,
               flexShrink: 0,
             }}
           >
@@ -239,7 +241,7 @@ function AdminLayout() {
                 marginLeft: "auto",
                 border: 0,
                 background: "transparent",
-                color: "#f5f5f4",
+                color: T.text,
                 fontSize: 18,
                 cursor: "pointer",
               }}
