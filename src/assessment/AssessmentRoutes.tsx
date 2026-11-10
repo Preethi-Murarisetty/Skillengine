@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import { clearPendingAssessment } from '../utils/pendingAssessment';
 import { AssessmentProvider, useAssessmentStore } from './store/assessmentStore';
 import AssessmentShell from './components/AssessmentShell';
 import AssessmentVerification from './pages/AssessmentVerification';
@@ -10,6 +12,14 @@ import AssessmentError from './pages/AssessmentError';
 /** Renders the screen that matches the current assessment status (state machine). */
 function Flow() {
   const { state } = useAssessmentStore();
+  const { token } = useParams<{ token: string }>();
+
+  useEffect(() => {
+    if (state.status === 'COMPLETED' && token) {
+      clearPendingAssessment(token);
+    }
+  }, [state.status, token]);
+
   switch (state.status) {
     case 'VERIFYING': case 'VERIFIED': return <AssessmentVerification />;
     case 'INSTRUCTIONS': case 'STARTING': return <AssessmentInstructionsPage />;

@@ -12,7 +12,6 @@ import {
   FaBars,
   FaTimes,
   FaLayerGroup,
-  FaTable,
   FaSearch,
   FaBell,
 } from "react-icons/fa";
@@ -39,7 +38,6 @@ const T = {
 const dashboardSections = [
   { name: "Overview", section: "Overview", icon: <FaThLarge /> },
   { name: "Students", section: "Students", icon: <FaUserTie /> },
-  { name: "Institutional Student Data", section: "Institutional Student Data", icon: <FaTable /> },
   { name: "Assessments", section: "Assessments", icon: <FaTasks /> },
   { name: "Academics", section: "Academics", icon: <FaLayerGroup /> },
   { name: "Institutions", section: "Institutions", icon: <FaLayerGroup /> },

@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useInterview } from '../../hooks/useInterview';
+import { useAuth } from '../../hooks/useAuth';
 import ProgressBar from '../common/ProgressBar';
 import { transcribeText } from '../../services/api';
 import {
@@ -11,6 +12,15 @@ import {
   evaluateAIInterviewAnswer,
   endAIInterview,
 } from '../../services/api';
+import {
+  discoverRolesFromResume,
+  discoverTopicsForRoleSkill,
+  evaluateRoleInterviewAnswer,
+  generateRoleInterviewQuestions,
+  getRoleRequirements,
+} from '../../services/resumeRoleApi';
+import { getResumeSkills, normalizeSkillList } from '../../utils/skills';
+import { recordInterviewSession } from '../../utils/userProgress';
 import { createSpeechRecognition } from '../../utils/speechRecognition';
 
 const MAX_RECORDING_SECONDS = 180;
@@ -89,6 +99,8 @@ const normalizeEvaluation = (payload) => {
   const raw = payload?.data ?? payload ?? {};
 
   const scoreValue =
+    raw?.marks_awarded ??
+    raw?.evaluation?.marks_awarded ??
     raw?.score ??
     raw?.evaluation?.score ??
     raw?.result?.score ??
@@ -102,6 +114,8 @@ const normalizeEvaluation = (payload) => {
     score,
 
     maxScore:
+      raw?.total_marks ??
+      raw?.evaluation?.total_marks ??
       raw?.max_score ??
       raw?.maxScore ??
       raw?.evaluation?.max_score ??
@@ -126,6 +140,16 @@ const normalizeEvaluation = (payload) => {
       raw?.evaluation?.extracted_concepts ||
       [],
 
+    strengths:
+      raw?.strengths ||
+      raw?.evaluation?.strengths ||
+      [],
+
+    improvements:
+      raw?.improvements ||
+      raw?.evaluation?.improvements ||
+      [],
+
     nextQuestionType:
       raw?.next_question_type ||
       raw?.nextQuestionType ||
@@ -147,6 +171,7 @@ const buildFallbackEvaluation = (
 const InterviewQuestions = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const {
     completeInterview,
@@ -159,6 +184,9 @@ const InterviewQuestions = () => {
 
   const [aiSessionId, setAiSessionId] =
     useState('');
+
+  const [isRoleInterview, setIsRoleInterview] =
+    useState(false);
 
   const [topic, setTopic] = useState(
     () =>
@@ -1102,6 +1130,124 @@ const InterviewQuestions = () => {
             terms || []
           );
 
+          let roleInterviewContext = null;
+          let roleInterviewQuestions = location.state?.roleInterviewQuestions;
+          try {
+            roleInterviewContext = JSON.parse(
+              sessionStorage.getItem('roleInterviewContext') || 'null'
+            );
+            roleInterviewQuestions = roleInterviewQuestions || JSON.parse(
+              sessionStorage.getItem('roleInterviewQuestions') || '[]'
+            );
+          } catch {
+            roleInterviewContext = null;
+            roleInterviewQuestions = [];
+          }
+
+          const resumeText = String(
+            rData?.extracted_text || rData?.resume_text || rData?.text || ''
+          ).trim();
+          const unwrapRoleResponse = (response) =>
+            response?.data?.data ?? response?.data ?? response ?? {};
+
+          if (!roleInterviewContext?.role && resumeText.length >= 20) {
+            const rolesPayload = unwrapRoleResponse(
+              await discoverRolesFromResume(resumeText)
+            );
+            const roles = rolesPayload.roles
+              || rolesPayload.recommended_roles
+              || rolesPayload.suggested_roles
+              || [];
+            const selectedRole = typeof roles[0] === 'string'
+              ? roles[0]
+              : roles[0]?.role || roles[0]?.title || roles[0]?.name;
+
+            if (!selectedRole) {
+              throw new Error('The resume interview backend did not find a role for this resume.');
+            }
+
+            const requirementsPayload = unwrapRoleResponse(
+              await getRoleRequirements(selectedRole, resumeText)
+            );
+            roleInterviewContext = {
+              role: selectedRole,
+              resumeText,
+              requirements: requirementsPayload.requirements || requirementsPayload,
+            };
+            sessionStorage.setItem('roleInterviewContext', JSON.stringify(roleInterviewContext));
+          }
+
+          if (roleInterviewContext?.role && (!Array.isArray(roleInterviewQuestions) || !roleInterviewQuestions.length)) {
+            const requirements = roleInterviewContext.requirements || {};
+            const skillAreas = Array.isArray(requirements.skill_areas)
+              ? requirements.skill_areas
+              : [];
+            const roleSkill = skillAreas.find((area) => area?.resume_supported && area?.skill)?.skill
+              || skillAreas.find((area) => area?.skill)?.skill
+              || requirements.common_skills?.[0]
+              || requirements.role_required_skills?.[0]
+              || getResumeSkills(rData)[0];
+
+            if (!roleSkill) {
+              throw new Error(`The role requirements for ${roleInterviewContext.role} did not include any interview skills.`);
+            }
+
+            const topicsPayload = unwrapRoleResponse(
+              await discoverTopicsForRoleSkill(roleInterviewContext.role, roleSkill)
+            );
+            const topics = Array.isArray(topicsPayload.topics) ? topicsPayload.topics : [];
+            const firstTopic = topics.find((item) => typeof item === 'string' || item?.topic || item?.name);
+            const concept = typeof firstTopic === 'string'
+              ? firstTopic
+              : firstTopic?.topic || firstTopic?.name || roleSkill;
+            const questionsPayload = unwrapRoleResponse(
+              await generateRoleInterviewQuestions(roleInterviewContext.role, roleSkill, concept)
+            );
+            roleInterviewQuestions = (Array.isArray(questionsPayload.questions) ? questionsPayload.questions : [])
+              .map((item) => {
+                const question = typeof item === 'string' ? item : item?.question;
+                if (typeof question !== 'string' || !question.trim()) return null;
+                return {
+                  ...(typeof item === 'object' ? item : {}),
+                  question: question.trim(),
+                  role: roleInterviewContext.role,
+                  skill: roleSkill,
+                  concept,
+                  category: roleSkill,
+                  topic: concept,
+                  difficulty: item?.difficulty || 'Medium',
+                };
+              })
+              .filter(Boolean);
+
+            if (!roleInterviewQuestions.length) {
+              throw new Error('The resume interview backend returned no valid interview questions.');
+            }
+            sessionStorage.setItem('roleInterviewQuestions', JSON.stringify(roleInterviewQuestions));
+          }
+
+          if (roleInterviewContext?.role && Array.isArray(roleInterviewQuestions) && roleInterviewQuestions.length) {
+            const preparedQuestions = roleInterviewQuestions
+              .filter((question) => typeof question?.question === 'string' && question.question.trim())
+              .slice(0, totalQuestions);
+            if (!preparedQuestions.length) {
+              throw new Error('The Role Interview backend returned an invalid question format.');
+            }
+            setIsRoleInterview(true);
+            setTopic(roleInterviewContext.role);
+            setLevel('Medium');
+            setTotalQuestions(preparedQuestions.length);
+            setAskedQuestions(preparedQuestions);
+            setAiSessionId(`role-interview-${Date.now()}`);
+            sessionStorage.setItem('allSkills', JSON.stringify(normalizeSkillList(
+              getResumeSkills(rData),
+              preparedQuestions.map((question) => question.skill),
+            )));
+            sessionStorage.setItem('questionSource', 'role-interview-backend');
+            sessionStorage.setItem('interviewQuestions', JSON.stringify(preparedQuestions));
+            return;
+          }
+
           // ----------------------------------------------------------
           // ALWAYS START NEW AI SESSION.
           // ----------------------------------------------------------
@@ -1289,6 +1435,11 @@ const InterviewQuestions = () => {
 
     const endBecauseOfTimeout =
       async () => {
+        if (isRoleInterview) {
+          await finishInterview(answers, evaluations);
+          return;
+        }
+
         endingInterviewRef.current =
           true;
 
@@ -1708,7 +1859,7 @@ const InterviewQuestions = () => {
         )
       );
 
-      if (aiSessionId) {
+      if (aiSessionId && !isRoleInterview) {
         try {
           const response = await endAIInterview(
             aiSessionId
@@ -1721,6 +1872,61 @@ const InterviewQuestions = () => {
           );
         }
       }
+
+      let historyPersisted = false;
+      try {
+        const saveResult = await completeInterview();
+        historyPersisted = Boolean(saveResult?.persisted);
+      } catch (saveError) {
+        console.error('Interview history save error:', saveError);
+      }
+
+      if (isRoleInterview) {
+        const scores = finalEvaluations
+          .map((evaluation) => Number(evaluation?.score))
+          .filter(Number.isFinite);
+        const overallScore = scores.length
+          ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+          : 0;
+        const roleReport = {
+          candidateName: resumeData?.candidate_name || resumeData?.full_name || 'Candidate',
+          overallScore,
+          totalQuestions: askedQuestions.length,
+          answeredQuestions: finalAnswers.filter((answer) => answer.answer !== '[Skipped]').length,
+          recommendedForNextRound: overallScore >= 6,
+          questionDetails: askedQuestions.map((question, index) => {
+            const evaluation = finalEvaluations[index] || {};
+            return {
+              question: getQuestionText(question),
+              topic: question?.topic || question?.skill || question?.category || topic,
+              answer: finalAnswers[index]?.answer || '[Skipped]',
+              evaluation: {
+                score: evaluation.score || 0,
+                feedback: evaluation.feedback || '',
+                strengths: evaluation.strengths || [],
+                improvements: evaluation.improvements || [],
+              },
+            };
+          }),
+        };
+        sessionStorage.setItem('interviewReport', JSON.stringify(roleReport));
+      }
+
+      if (!historyPersisted) {
+        const scores = finalEvaluations
+          .map((evaluation) => Number(evaluation?.score))
+          .filter(Number.isFinite);
+        const overallScore = scores.length
+          ? scores.reduce((sum, score) => sum + score, 0) / scores.length
+          : 0;
+        recordInterviewSession(user, {
+          sessionId: aiSessionId,
+          topic,
+          overallScore,
+          questionsAnswered: finalAnswers.filter((answer) => answer.answer !== '[Skipped]').length,
+        });
+      }
+      window.dispatchEvent(new Event('skillengine:interviews-updated'));
 
       // ------------------------------------------------------------
       // Keep report data but remove ACTIVE session.
@@ -1788,7 +1994,7 @@ const InterviewQuestions = () => {
           currentQuestion
         );
 
-      if (!questionId) {
+      if (!questionId && !isRoleInterview) {
         setTranscribeError(
           'This question does not have a valid question ID. Please start a new interview.'
         );
@@ -1816,8 +2022,21 @@ const InterviewQuestions = () => {
         buildFallbackEvaluation();
 
       try {
-        const response =
-          await evaluateAIInterviewAnswer(
+        let response;
+        if (isRoleInterview) {
+          const roleInterviewContext = JSON.parse(
+            sessionStorage.getItem('roleInterviewContext') || '{}'
+          );
+          response = await evaluateRoleInterviewAnswer({
+            role: roleInterviewContext.role,
+            skill: currentQuestion.skill || currentQuestion.category || topic,
+            concept: currentQuestion.concept || currentQuestion.topic || currentQuestion.skill || topic,
+            difficulty: currentQuestion.difficulty || 'Medium',
+            question: getQuestionText(currentQuestion),
+            answer: answerText,
+          });
+        } else {
+          response = await evaluateAIInterviewAnswer(
             {
               session_id:
                 aiSessionId,
@@ -1829,6 +2048,7 @@ const InterviewQuestions = () => {
                 answerText,
             }
           );
+              }
 
         const data =
           response?.data ||
@@ -1849,10 +2069,11 @@ const InterviewQuestions = () => {
           );
         }
 
-        evaluation =
-          normalizeEvaluation(
-            data
-          );
+        if (isRoleInterview && (!data.evaluation || !Number.isFinite(Number(data.evaluation.marks_awarded)))) {
+          throw new Error('The Role Interview backend returned an invalid evaluation.');
+        }
+
+        evaluation = normalizeEvaluation(isRoleInterview ? data.evaluation : data);
 
         if (
           data.remaining_time_seconds !==
@@ -1921,7 +2142,7 @@ const InterviewQuestions = () => {
         // ----------------------------------------------------------
 
         if (
-          data.interview_ended
+          data.interview_ended && !isRoleInterview
         ) {
           await finishInterview(
             newAnswers,
@@ -1951,6 +2172,11 @@ const InterviewQuestions = () => {
             evaluation.score
           )
         );
+
+        if (isRoleInterview) {
+          setCurrentIndex(nextQuestionNumber);
+          return;
+        }
 
         await fetchAIQuestion(
           aiSessionId,
@@ -2021,7 +2247,7 @@ const InterviewQuestions = () => {
           currentQuestion
         );
 
-      if (!questionId) {
+      if (!questionId && !isRoleInterview) {
         setTranscribeError(
           'This question does not have a valid question ID.'
         );
@@ -2034,6 +2260,40 @@ const InterviewQuestions = () => {
       try {
         const skippedAnswer =
           'The candidate skipped this question and did not provide an answer.';
+
+        if (isRoleInterview) {
+          const roleInterviewContext = JSON.parse(
+            sessionStorage.getItem('roleInterviewContext') || '{}'
+          );
+          const response = await evaluateRoleInterviewAnswer({
+            role: roleInterviewContext.role,
+            skill: currentQuestion.skill || currentQuestion.category || topic,
+            concept: currentQuestion.concept || currentQuestion.topic || currentQuestion.skill || topic,
+            difficulty: currentQuestion.difficulty || 'Medium',
+            question: getQuestionText(currentQuestion),
+            answer: '',
+          });
+          const data = response?.data ?? response ?? {};
+          if (!data.evaluation || !Number.isFinite(Number(data.evaluation.marks_awarded))) {
+            throw new Error('The Role Interview backend returned an invalid evaluation.');
+          }
+          const evaluation = normalizeEvaluation(data.evaluation);
+          const newAnswers = [...answers, { question: currentQuestion, answer: '[Skipped]' }];
+          const newEvaluations = [...evaluations, evaluation];
+          setAnswers(newAnswers);
+          setEvaluations(newEvaluations);
+          sessionStorage.setItem('interviewAnswers', JSON.stringify(newAnswers));
+          sessionStorage.setItem('interviewEvaluations', JSON.stringify(newEvaluations));
+          resetAnswerDraft();
+          const nextQuestionNumber = currentIndex + 1;
+          if (nextQuestionNumber >= totalQuestions) {
+            await finishInterview(newAnswers, newEvaluations);
+          } else {
+            setThinkingLine(pickThinkingLine(evaluation.score));
+            setCurrentIndex(nextQuestionNumber);
+          }
+          return;
+        }
 
         console.log(
           'SKIP REQUEST:',

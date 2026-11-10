@@ -18,6 +18,28 @@ const extractSessions = (response) => {
   return [];
 };
 
+export const mergeInterviewSessions = (serverSessions = [], localSessions = []) => {
+  const merged = [...serverSessions];
+  const identities = new Set(merged.map((session) => String(session.session_id ?? session.sessionId ?? session.id ?? '')).filter(Boolean));
+
+  localSessions.forEach((session) => {
+    const identity = String(session.session_id ?? session.sessionId ?? session.id ?? '');
+    if (!identity || !identities.has(identity)) {
+      merged.push(session);
+      if (identity) identities.add(identity);
+    }
+  });
+
+  return merged.sort((left, right) => {
+    const leftDate = Date.parse(left.interview_date || left.completed_at || left.completedAt || '');
+    const rightDate = Date.parse(right.interview_date || right.completed_at || right.completedAt || '');
+    if (Number.isFinite(leftDate) && Number.isFinite(rightDate)) return rightDate - leftDate;
+    if (Number.isFinite(rightDate)) return 1;
+    if (Number.isFinite(leftDate)) return -1;
+    return 0;
+  });
+};
+
 export const getUserInterviewHistory = async (user) => {
   const key = getUserKey(user);
   if (!key) return [];

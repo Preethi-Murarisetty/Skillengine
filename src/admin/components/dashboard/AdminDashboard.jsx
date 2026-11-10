@@ -4,6 +4,7 @@ import { getAssessments, getUsers } from "../../services/api";
 import { hasInstitutionalMetadata, matchesStudentFilters, normalizeInstitutionalUsers, uniqueOptions } from "../../utils/studentDirectory";
 import { LOCAL_INSTITUTIONAL_CATALOG } from "../../data/institutionalCatalog";
 import { readLocalAssignedAssessments } from "../../../services/localAssignedAssessments";
+import { getAssessmentResults } from "../../../assessment/api/assessmentApi";
 import { Activity, Building2, Check, CircleDashed, Eye, FilePenLine, Layers3, MapPin, Search, UserCheck, UserRound, UserX, BookOpen } from "lucide-react";
 
 // Dashboard records are adapted from the authenticated users/assessment APIs.
@@ -15,6 +16,14 @@ const FILTER_QUERY_KEYS = {
   institutionId: "institution",
   campusId: "campus",
   courseId: "course",
+  year: "year",
+  department: "department",
+  section: "section",
+};
+const DIRECTORY_FILTER_QUERY_KEYS = {
+  institution: "institution",
+  campus: "campus",
+  course: "course",
   year: "year",
   department: "department",
   section: "section",
@@ -132,15 +141,80 @@ const candidateStudentId = (candidate) => String(
   candidate?.student?.id || candidate?.student?._id || candidate?.user?.id || candidate?.user?._id || candidate?.candidate?.id || candidate?.id || ""
 );
 
-const resultRecordsFromAssessments = (assessments) => assessments.flatMap((assessment) =>
-  assessmentCandidates(assessment).flatMap((candidate) => {
+const resultRecordsFromAssessments = (assessments) => {
+  const records = assessments.flatMap((assessment) => [
+  ...assessmentCandidates(assessment).flatMap((candidate) => {
     const result = candidate?.result || candidate?.submission || candidate?.attempt_result || candidate?.attemptResult || candidate?.attempt || candidate;
     const score = result?.score ?? result?.marks_obtained ?? result?.marksObtained ?? result?.total_score ?? result?.totalScore;
     const status = String(result?.result_status || result?.status || candidate?.result_status || candidate?.attempt_status || candidate?.status || "").toLowerCase();
     if (score === undefined && !["passed", "failed"].includes(status)) return [];
     return [{ ...result, studentId: candidateStudentId(candidate), assessmentId: assessment.id, score: score === undefined ? null : Number(score), status }];
-  }).filter((result) => result.studentId)
-);
+  }).filter((result) => result.studentId),
+  ...(assessment.resultRecords || []),
+  ]);
+  const uniqueRecords = new Map();
+  records.forEach((result) => {
+    const attemptIdentity = result.attemptId || result.attempt_id || result.attemptNumber || result.attempt_number || result.submitted_at || result.submittedAt || `${result.score}:${result.status}`;
+    uniqueRecords.set(`${result.assessmentId}:${result.studentId}:${attemptIdentity}`, result);
+  });
+  return [...uniqueRecords.values()];
+};
+
+const addAssessmentResults = async (assessments) => {
+  const enriched = await Promise.all(assessments.map(async (assessment) => {
+    if (!assessment.id || String(assessment.id).startsWith("local-")) return assessment;
+    try {
+      const response = await getAssessmentResults(assessment.id);
+      const history = response?.history?.length ? response.history : response ? [response] : [];
+      const completedAttempts = history.filter((entry) => entry.candidate?.id && entry.result);
+      if (!completedAttempts.length) return assessment;
+
+      const existingCandidates = assessmentCandidates(assessment);
+      const candidateById = new Map(existingCandidates.map((candidate) => [candidateStudentId(candidate), candidate]));
+      completedAttempts.forEach((entry) => {
+        const studentId = String(entry.candidate.id);
+        const existing = candidateById.get(studentId) || {};
+        candidateById.set(studentId, {
+          ...existing,
+          id: existing.id || studentId,
+          student_id: existing.student_id || studentId,
+          name: existing.name || entry.candidate.name,
+          email: existing.email || entry.candidate.email,
+          attempt: entry.attempt,
+          attempt_status: entry.attempt?.status || "completed",
+          submitted_at: entry.attempt?.submitted_at,
+          result: {
+            ...entry.result,
+            status: entry.result.result || entry.attempt?.status || "completed",
+            result_status: entry.result.result,
+            submitted_at: entry.attempt?.submitted_at,
+          },
+        });
+      });
+
+      const resultRecords = completedAttempts.map((entry) => ({
+        ...entry.result,
+        studentId: String(entry.candidate.id),
+        assessmentId: assessment.id,
+        attemptId: entry.attempt?.id || "",
+        attemptNumber: entry.attempt?.attempt_number,
+        submitted_at: entry.attempt?.submitted_at,
+        score: entry.result.score ?? null,
+        status: String(entry.result.result || entry.attempt?.status || "completed").toLowerCase(),
+      }));
+
+      return {
+        ...assessment,
+        candidates: [...candidateById.values()],
+        resultRecords,
+      };
+    } catch (error) {
+      console.warn(`Could not load results for assessment ${assessment.id}.`, error);
+      return assessment;
+    }
+  }));
+  return enriched;
+};
 
 const normalizeAssessment = (assessment) => ({
   ...assessment,
@@ -183,7 +257,7 @@ const latestActivity = (assignment) => {
 
 const activityStatus = (assignment) => ({
   in_progress: { label: "Writing Exam", tone: "orange" },
-  not_started: { label: "Not Started", tone: "purple" },
+  not_started: { label: "Not Writing Exam", tone: "purple" },
   submitted: { label: "Completed", tone: "green" },
   expired: { label: "Exam Expired", tone: "blue" },
   unknown: { label: "Assigned", tone: "gray" },
@@ -376,13 +450,16 @@ export default function AdminDashboard() {
       if (cancelled) return;
 
       const errors = [];
+      const remoteAssessments = assessmentsResponse.status === "fulfilled"
+        ? await addAssessmentResults(assessmentsResponse.value.map(normalizeAssessment))
+        : [];
+      if (cancelled) return;
       const localAssessments = readLocalAssignedAssessments().map(normalizeAssessment);
       if (usersResponse.status === "fulfilled") {
         const normalizedUsers = normalizeInstitutionalUsers(usersResponse.value);
         const institutionalUsers = normalizedUsers.filter((student) => student.institution.key).map(dashboardStudent);
         if (!institutionalUsers.length) {
           const liveStudents = normalizedUsers.filter((student) => student.isStudent).map(dashboardStudent);
-          const remoteAssessments = assessmentsResponse.status === "fulfilled" ? assessmentsResponse.value.map(normalizeAssessment) : [];
           const remoteIds = new Set(remoteAssessments.map((assessment) => assessment.id));
           const liveAssessments = [...remoteAssessments, ...localAssessments.filter((assessment) => !remoteIds.has(assessment.id))];
           useLocalCatalog(liveStudents, liveAssessments);
@@ -417,7 +494,6 @@ export default function AdminDashboard() {
         setCampuses(mergedCampuses);
         setCourses(mergedCourses);
         if (assessmentsResponse.status === "fulfilled") {
-          const remoteAssessments = assessmentsResponse.value.map(normalizeAssessment);
           const remoteIds = new Set(remoteAssessments.map((assessment) => assessment.id));
           const allAssessments = [...remoteAssessments, ...localAssessments.filter((assessment) => !remoteIds.has(assessment.id))];
           const liveAssessments = allAssessments.map((assessment) => {
@@ -439,7 +515,6 @@ export default function AdminDashboard() {
         setCatalogSource("api");
       } else {
         errors.push(apiErrorMessage("GET /api/users/users", usersResponse.reason));
-        const remoteAssessments = assessmentsResponse.status === "fulfilled" ? assessmentsResponse.value.map(normalizeAssessment) : [];
         const remoteIds = new Set(remoteAssessments.map((assessment) => assessment.id));
         const liveAssessments = [...remoteAssessments, ...localAssessments.filter((assessment) => !remoteIds.has(assessment.id))];
         useLocalCatalog([], liveAssessments);
@@ -447,7 +522,6 @@ export default function AdminDashboard() {
 
       if (assessmentsResponse.status === "fulfilled") {
         if (usersResponse.status !== "fulfilled") {
-          const remoteAssessments = assessmentsResponse.value.map(normalizeAssessment);
           const remoteIds = new Set(remoteAssessments.map((assessment) => assessment.id));
           const liveAssessments = [...remoteAssessments, ...localAssessments.filter((assessment) => !remoteIds.has(assessment.id))];
           setAssessments(liveAssessments);
@@ -477,6 +551,12 @@ export default function AdminDashboard() {
   useEffect(() => {
     setTab(TABS.includes(requestedTab) ? requestedTab : "Dashboard");
   }, [requestedTab]);
+
+  useEffect(() => {
+    setDirectoryFilters(Object.fromEntries(
+      Object.entries(DIRECTORY_FILTER_QUERY_KEYS).map(([field, queryKey]) => [field, searchParams.get(queryKey) || ""])
+    ));
+  }, [searchParams]);
 
   const [filters, setFilters] = useState(emptyFilters);
   const [appliedFilters, setAppliedFilters] = useState(emptyFilters);
@@ -512,9 +592,14 @@ export default function AdminDashboard() {
     const hasCohortQuery = Object.entries(FILTER_QUERY_KEYS).some(([filterKey, queryKey]) => {
       const value = searchParams.get(queryKey);
       if (!value) return false;
-      return filterKey !== "section" || ["A", "B", "C"].includes(value.toUpperCase());
+      return filterKey !== "section" || Boolean(searchParams.get("dashboardTab")) || ["A", "B", "C"].includes(value.toUpperCase());
     });
-    if (!hasCohortQuery) return;
+    if (!hasCohortQuery) {
+      setFilters(emptyFilters());
+      setAppliedFilters(emptyFilters());
+      skipAppliedFilterRestore.current = false;
+      return;
+    }
     const restored = emptyFilters();
     Object.entries(FILTER_QUERY_KEYS).forEach(([filterKey, queryKey]) => {
       const value = searchParams.get(queryKey);
@@ -710,12 +795,16 @@ export default function AdminDashboard() {
     assessmentCandidates(assessment).map((candidate) => ({ assessment, candidate, studentId: candidateStudentId(candidate), state: assignmentState(candidate) })));
   const visibleStudentIds = new Set(shownStudents.map((student) => student.id));
   const knownAssignmentRows = assignmentRows.filter((assignment) => assignment.studentId && visibleStudentIds.has(assignment.studentId));
-  const studentActivityRows = dashboardAssignmentRows.map((assignment) => {
+  const cohortActivityRows = dashboardAssignmentRows.map((assignment) => {
     const snapshot = assignment.assessment.students?.find((student) => String(student.id || student.student_id || "") === assignment.studentId);
     const student = byId(students, assignment.studentId) || (snapshot ? {
       id: assignment.studentId,
       studentId: snapshot.studentId || assignment.studentId,
       name: snapshot.name || assignment.candidate?.name || "Unnamed student",
+      institutionId: assignment.assessment.institutionId,
+      campusId: assignment.assessment.campusId,
+      courseId: assignment.assessment.courseId,
+      departmentId: assignment.assessment.departmentId,
       institution: { label: snapshot.institution || assignment.assessment.institutionName || "—" },
       campus: { label: snapshot.campus || assignment.assessment.campusName || "—" },
       course: { label: snapshot.course || assignment.assessment.courseName || "—" },
@@ -725,7 +814,20 @@ export default function AdminDashboard() {
       status: snapshot.status || "Unknown",
     } : null);
     return { ...assignment, student };
-  }).filter((assignment) => assignment.student && (!activitySearch.trim() || [assignment.student.name, assignment.student.studentId, assignment.student.id, assignment.assessment.title].some((value) => String(value || "").toLowerCase().includes(activitySearch.trim().toLowerCase()))) && (activityExamFilter === ALL || assignment.state === activityExamFilter) && (activityStatusFilter === ALL || assignment.student.status === activityStatusFilter))
+  }).filter((assignment) => assignment.student && LEVELS.every((field) => {
+    const selected = filters[field];
+    if (selected === ALL) return true;
+    const student = assignment.student;
+    const entityField = field.replace(/Id$/, "");
+    const value = field === "department"
+      ? student.departmentId || student.department?.key || student.department?.label || student.department
+      : student[field]?.key || student[field]?.label || student[field] || student[entityField]?.key || student[entityField]?.label || student[entityField];
+    return String(value || "") === String(selected);
+  }));
+  const studentActivityRows = cohortActivityRows.filter((assignment) =>
+    (!activitySearch.trim() || [assignment.student.name, assignment.student.studentId, assignment.student.id, assignment.assessment.title].some((value) => String(value || "").toLowerCase().includes(activitySearch.trim().toLowerCase()))) &&
+    (activityExamFilter === ALL || assignment.state === activityExamFilter) &&
+    (activityStatusFilter === ALL || assignment.student.status === activityStatusFilter))
     .sort((left, right) => {
       const priority = { in_progress: 0, not_started: 1, unknown: 2, submitted: 3, expired: 4 };
       return priority[left.state] - priority[right.state] || left.student.name.localeCompare(right.student.name);
@@ -733,7 +835,7 @@ export default function AdminDashboard() {
   const activityPageSize = 5;
   const activityPageCount = Math.max(1, Math.ceil(studentActivityRows.length / activityPageSize));
   const pagedActivityRows = studentActivityRows.slice((activityPage - 1) * activityPageSize, activityPage * activityPageSize);
-  const activityUniqueCount = (state) => new Set(dashboardAssignmentRows.filter((assignment) => assignment.state === state).map((assignment) => assignment.studentId).filter(Boolean)).size;
+  const activityUniqueCount = (state) => new Set(cohortActivityRows.filter((assignment) => assignment.state === state).map((assignment) => assignment.studentId).filter(Boolean)).size;
   const activityActiveCount = students.filter((student) => student.status === "Active").length;
   const activityInactiveCount = students.filter((student) => student.status === "Inactive").length;
   const departmentCount = new Set(courses.flatMap((courseItem) =>
@@ -843,13 +945,30 @@ export default function AdminDashboard() {
   const setDirectoryFilter = (field, value) => {
     const fields = Object.keys(directoryFilters);
     const start = fields.indexOf(field);
-    setDirectoryFilters((current) => Object.fromEntries(fields.map((key, index) => [key, index < start ? current[key] : key === field ? value : ""])));
+    const nextFilters = Object.fromEntries(fields.map((key, index) => [key, index < start ? directoryFilters[key] : key === field ? value : ""]));
+    setDirectoryFilters(nextFilters);
     setDirectoryPage(1);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("dashboardTab", "Institutional Student Data");
+      Object.values(FILTER_QUERY_KEYS).forEach((key) => next.delete(key));
+      Object.entries(DIRECTORY_FILTER_QUERY_KEYS).forEach(([filterKey, queryKey]) => {
+        if (nextFilters[filterKey]) next.set(queryKey, nextFilters[filterKey]);
+      });
+      return next;
+    });
   };
   const resetDirectoryFilters = () => {
     setDirectoryFilters(emptyDirectoryFilters());
     setDirectorySearch("");
     setDirectoryPage(1);
+    setFilters(emptyFilters());
+    setAppliedFilters(emptyFilters());
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      Object.values(FILTER_QUERY_KEYS).forEach((key) => next.delete(key));
+      return next;
+    });
   };
 
   // ---------- ACTIONS ----------
@@ -957,6 +1076,29 @@ export default function AdminDashboard() {
     setTab("Students");
   };
 
+  const openInstitutionalStudents = () => {
+    setDirectoryFilters({
+      institution: filters.institutionId === ALL ? "" : filters.institutionId,
+      campus: filters.campusId === ALL ? "" : filters.campusId,
+      course: filters.courseId === ALL ? "" : filters.courseId,
+      year: filters.year === ALL ? "" : filters.year,
+      department: filters.department === ALL ? "" : filters.department,
+      section: filters.section === ALL ? "" : filters.section,
+    });
+    setDirectorySearch(search);
+    setDirectoryPage(1);
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("dashboardTab", "Institutional Student Data");
+      Object.entries(FILTER_QUERY_KEYS).forEach(([filterKey, queryKey]) => {
+        next.delete(queryKey);
+        if (filters[filterKey] !== ALL) next.set(queryKey, filters[filterKey]);
+      });
+      return next;
+    });
+    setTab("Institutional Student Data");
+  };
+
   // CSV exports follow the current filters
   const exportStudents = () =>
     downloadCSV("students.csv",
@@ -1041,6 +1183,7 @@ export default function AdminDashboard() {
               {tab === "Dashboard" && <>
                 <Button primary disabled={!hasCompleteAssessmentCohort || dashboardLoading} onClick={createAssessmentForFilters}>Create Assessment</Button>
                 <Button disabled={!hasStudentPerformanceScope || dashboardLoading} onClick={openStudentPerformance}>Student Performance</Button>
+                <Button disabled={dashboardLoading} onClick={openInstitutionalStudents}>View institutional students</Button>
                 {hasCompleteAssessmentCohort && !assessmentCohortStudents.length && <span className="w-full text-sm text-red-600">No students found for the selected filters.</span>}
               </>}
             </div>
@@ -1112,9 +1255,6 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
               {[
                 { label: "Total Students", value: students.length, icon: <UserRound size={18} />, tone: "orange" },
-                { label: "Writing Exam", value: activityUniqueCount("in_progress"), icon: <FilePenLine size={18} />, tone: "orange" },
-                { label: "Not Started", value: activityUniqueCount("not_started"), icon: <CircleDashed size={18} />, tone: "purple" },
-                { label: "Completed", value: activityUniqueCount("submitted"), icon: <Check size={18} />, tone: "green" },
                 { label: "Active Students", value: activityActiveCount, icon: <UserCheck size={18} />, tone: "blue" },
                 { label: "Inactive Students", value: activityInactiveCount, icon: <UserX size={18} />, tone: "gray" },
               ].map((item) => {
@@ -1174,7 +1314,7 @@ export default function AdminDashboard() {
                     <input className="w-full min-w-0 border-0 text-sm outline-none" value={activitySearch} onChange={(event) => { setActivitySearch(event.target.value); setActivityPage(1); }} placeholder="Search name, ID, or assessment" aria-label="Search student activity" />
                   </label>
                   <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" value={activityExamFilter} onChange={(event) => { setActivityExamFilter(event.target.value); setActivityPage(1); }} aria-label="Filter by exam status">
-                    <option value={ALL}>All exam statuses</option><option value="in_progress">Writing Exam</option><option value="not_started">Not Started</option><option value="submitted">Completed</option><option value="unknown">Assigned</option><option value="expired">Exam Expired</option>
+                    <option value={ALL}>All exam statuses</option><option value="in_progress">Writing Exam</option><option value="not_started">Not Writing Exam</option><option value="submitted">Completed</option><option value="unknown">Assigned</option><option value="expired">Exam Expired</option>
                   </select>
                   <select className="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm" value={activityStatusFilter} onChange={(event) => { setActivityStatusFilter(event.target.value); setActivityPage(1); }} aria-label="Filter by active status">
                     <option value={ALL}>All active statuses</option><option value="Active">Active</option><option value="Inactive">Inactive</option>

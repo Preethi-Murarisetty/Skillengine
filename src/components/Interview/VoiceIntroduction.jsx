@@ -10,6 +10,10 @@ import {
 } from '../../services/api';
 import { createSpeechRecognition } from '../../utils/speechRecognition';
 import { getResumeSkills, normalizeSkillList } from '../../utils/skills';
+import {
+  discoverTopicsForRoleSkill,
+  generateRoleInterviewQuestions,
+} from '../../services/resumeRoleApi';
 
 const MAX_RECORDING_SECONDS = 120;
 const TOTAL_QUESTIONS = 8;
@@ -347,6 +351,78 @@ const VoiceIntroduction = () => {
       allSkills,
     };
 
+    let roleInterviewContext = null;
+    try {
+      roleInterviewContext = JSON.parse(
+        sessionStorage.getItem('roleInterviewContext') || 'null'
+      );
+    } catch {
+      roleInterviewContext = null;
+    }
+
+    if (roleInterviewContext?.role) {
+      const requirements = roleInterviewContext.requirements || {};
+      const skillAreas = Array.isArray(requirements.skill_areas)
+        ? requirements.skill_areas
+        : [];
+      const selectedArea = skillAreas.find((area) => area?.resume_supported && area?.skill)
+        || skillAreas.find((area) => area?.skill);
+      const roleSkill = selectedArea?.skill
+        || requirements.common_skills?.[0]
+        || requirements.role_required_skills?.[0]
+        || resumeSkills[0];
+
+      if (!roleSkill || typeof roleSkill !== 'string') {
+        throw new Error('The selected role response did not include a skill for interview preparation.');
+      }
+
+      const topicResponse = await discoverTopicsForRoleSkill(roleInterviewContext.role, roleSkill);
+      const topicPayload = topicResponse?.data ?? topicResponse ?? {};
+      const topics = Array.isArray(topicPayload.topics) ? topicPayload.topics : [];
+      const selectedTopic = topics.find((item) => typeof item === 'string' || item?.topic || item?.name);
+      const concept = typeof selectedTopic === 'string'
+        ? selectedTopic
+        : selectedTopic?.topic || selectedTopic?.name || roleSkill;
+
+      const questionResponse = await generateRoleInterviewQuestions(
+        roleInterviewContext.role,
+        concept,
+        concept
+      );
+      const questionPayload = questionResponse?.data ?? questionResponse ?? {};
+      const rawQuestions = Array.isArray(questionPayload.questions) ? questionPayload.questions : [];
+      const questions = rawQuestions.map((item) => {
+        const text = typeof item === 'string' ? item : item?.question;
+        if (typeof text !== 'string' || !text.trim()) return null;
+        return {
+          ...(typeof item === 'object' ? item : {}),
+          question: text.trim(),
+          skill: roleSkill,
+          concept,
+          difficulty: item?.difficulty || 'Medium',
+          category: roleSkill,
+          topic: concept,
+          level: item?.difficulty || 'Medium',
+        };
+      }).filter(Boolean);
+
+      if (!questions.length) {
+        throw new Error('The Role Interview backend returned no valid interview questions.');
+      }
+
+      setDetectedSkills([roleSkill]);
+      return {
+        question: questions[0],
+        questions,
+        sessionId: `role-interview-${Date.now()}`,
+        techTermsFound: normalizeSkillList(allSkills, [roleSkill]),
+        spokenSkills,
+        questionSource: 'role-interview-backend',
+        totalQuestions: Math.min(TOTAL_QUESTIONS, questions.length),
+        resumeData: normalizedResumeData,
+      };
+    }
+
     // ========================================================
     // STEP 1: PROCESS SELF INTRO
     // AI Backend:
@@ -576,6 +652,13 @@ const VoiceIntroduction = () => {
         ])
       );
 
+      if (generated.questions) {
+        sessionStorage.setItem(
+          'roleInterviewQuestions',
+          JSON.stringify(generated.questions.slice(0, generated.totalQuestions))
+        );
+      }
+
       sessionStorage.setItem(
         'interviewAnswers',
         JSON.stringify([])
@@ -594,6 +677,9 @@ const VoiceIntroduction = () => {
         state: {
           openingQuestion:
             generated.question,
+
+          roleInterviewQuestions:
+            generated.questions,
 
           sessionId,
 

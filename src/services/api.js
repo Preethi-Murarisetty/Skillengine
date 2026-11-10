@@ -23,6 +23,11 @@ export const AI_API_URL =
     : import.meta.env.VITE_AI_API_URL ||
       'http://100.117.158.50:8100';
 
+// FastAPI resume/role recommendation backend
+export const RESUME_API_URL =
+  import.meta.env.VITE_RESUME_API_URL ||
+  'http://127.0.0.1:8002';
+
 const NGROK_BYPASS_HEADER =
   'ngrok-skip-browser-warning';
 
@@ -1390,8 +1395,8 @@ export const analyzeResumeAPI = async (
     console.log('🤖 AI Backend:', 'http://127.0.0.1:8000');
     console.log('💼 Job Role:', jobRole);
 
-    const response = await aiApi.post(
-      'http://127.0.0.1:8000/resume/analyze',
+    const response = await axios.post(
+      `${RESUME_API_URL}/resume/analyze`,
       formData,
       {
         headers: {

@@ -61,7 +61,7 @@ export default defineConfig(({ mode }) => {
     'http://100.117.158.50:8100';
   const resumeApiUrl =
     env.VITE_RESUME_API_URL ||
-    'http://127.0.0.1:8000';
+    'http://127.0.0.1:8002';
 
   return {
     plugins: [
@@ -73,10 +73,6 @@ export default defineConfig(({ mode }) => {
       host: '0.0.0.0',
 
       port: 5173,
-
-      hmr: {
-        port: 3000,
-      },
 
       proxy: {
         '/api/interviews': {

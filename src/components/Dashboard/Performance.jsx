@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowRight, BookOpenCheck, ChartNoAxesCombined, ClipboardCheck, LoaderCircle, Mic2 } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
 import { useInterviewHistory } from '../../hooks/useInterviewHistory';
+import { mergeInterviewSessions } from '../../services/interviewHistory';
 import { readUserProgress } from '../../utils/userProgress';
 import DashboardProgressBar from '../common/DashboardProgressBar';
 import {
@@ -218,7 +219,7 @@ const CategoryPanel = ({ id, title, description, icon: Icon, groups, error, load
 const Performance = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
-  const { sessions: interviews, isLoading: interviewsLoading, error: interviewsError } = useInterviewHistory(user);
+  const { sessions: serverInterviews, isLoading: interviewsLoading, error: interviewsError } = useInterviewHistory(user);
   const [progressRevision, setProgressRevision] = useState(0);
 
   useEffect(() => {
@@ -232,6 +233,10 @@ const Performance = () => {
   }, []);
 
   const progress = useMemo(() => readUserProgress(user), [user, progressRevision]);
+  const interviews = useMemo(
+    () => mergeInterviewSessions(serverInterviews, progress.interviewSessions),
+    [serverInterviews, progress.interviewSessions],
+  );
   const mcqGroups = useMemo(
     () => groupAssessmentAttempts(assessmentCategoryAttempts(progress.assessments, 'mcq')),
     [progress.assessments],
@@ -334,7 +339,7 @@ const Performance = () => {
           groups={interviewGroups}
           typeLabel="Interview"
           loading={interviewsLoading}
-          error={interviewsError}
+          error={interviewsError && interviews.length === 0}
           emptyMessage="No completed interview reports were returned for this account."
         />
       </div>

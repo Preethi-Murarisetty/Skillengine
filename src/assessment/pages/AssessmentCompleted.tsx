@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { CheckCircle2, XCircle, Loader2, Clock, User, BookOpen } from 'lucide-react';
+import { CheckCircle2, XCircle, Loader2, Clock, User, BookOpen, ChartNoAxesCombined } from 'lucide-react';
 import Brand from '../components/assessment/Brand';
 import { useAssessment } from '../hooks/useAssessment';
 import { getAssessmentResults, type FullAssessmentResult } from '../api/assessmentApi';
@@ -29,10 +29,30 @@ export default function AssessmentCompleted() {
 
   useEffect(() => {
     if (!state.assessmentId) { setLoading(false); return; }
+    const userEmail = String(user?.email || '').trim().toLowerCase();
+    const verifiedCandidateEmail = String(state.assessment?.candidate?.email || '').trim().toLowerCase();
+    if (
+      state.status === 'COMPLETED' &&
+      state.result?.percentage !== undefined &&
+      userEmail &&
+      verifiedCandidateEmail === userEmail
+    ) {
+      recordAssessmentResult(user, verifiedCandidateEmail, {
+        assessmentId: state.assessmentId,
+        attemptId: state.attemptId,
+        candidateId: state.assessment?.candidate?.id,
+        title: state.assessment?.title || 'Assessment',
+        score: state.result.score,
+        maxScore: state.result.total_marks,
+        percentage: state.result.percentage,
+        status: state.result.status || 'Completed',
+        submittedAt: new Date().toISOString(),
+      });
+    }
+
     getAssessmentResults(state.assessmentId)
       .then((result) => {
         const returnedAttempts = result?.history?.length ? result.history : result ? [result] : [];
-        const userEmail = String(user?.email || '').trim().toLowerCase();
         const ownAttempts = returnedAttempts.filter((attempt) =>
           userEmail && String(attempt.candidate?.email || '').trim().toLowerCase() === userEmail,
         );
@@ -42,7 +62,7 @@ export default function AssessmentCompleted() {
         if (state.status === 'COMPLETED') {
           ownAttempts.forEach((attempt) => {
             const score = attempt.result;
-            if (!score) return;
+            if (!score?.percentage && score?.percentage !== 0) return;
             recordAssessmentResult(user, attempt.candidate?.email, {
               assessmentId: attempt.assessment?.id || state.assessmentId,
               attemptId: attempt.attempt?.id || '',
@@ -61,7 +81,7 @@ export default function AssessmentCompleted() {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [state.assessmentId, state.attemptId, state.assessment?.title, state.status, user]);
+  }, [state.assessmentId, state.attemptId, state.assessment?.title, state.assessment?.candidate?.email, state.assessment?.candidate?.id, state.result, state.status, user]);
 
   const handleStartInterview = async () => {
     if (startingInterview || state.status !== 'COMPLETED' || !state.assessmentId) return;
@@ -320,6 +340,15 @@ export default function AssessmentCompleted() {
 
         {state.status === 'COMPLETED' && !loading && (
           <div className="se-card p-5 text-center" role={interviewStartError ? 'alert' : 'status'}>
+            {user?.email && String(state.assessment?.candidate?.email || '').trim().toLowerCase() === String(user.email).trim().toLowerCase() && (
+              <button
+                type="button"
+                className="se-btn-secondary mb-3 inline-flex items-center gap-2"
+                onClick={() => navigate('/performance')}
+              >
+                <ChartNoAxesCombined size={16} aria-hidden />View Performance
+              </button>
+            )}
             {interviewStartError && (
               <p className="mb-3 text-sm text-red-700">Interview could not be started: {interviewStartError}</p>
             )}

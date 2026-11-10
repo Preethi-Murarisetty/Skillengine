@@ -528,7 +528,6 @@ export default function AssessmentCreate() {
 
   const [created, setCreated] =
     useState(null);
-  const [createdLocally, setCreatedLocally] = useState(false);
 
   const userIdOf = (candidate) => normalizeStudent(candidate).id;
 
@@ -973,6 +972,7 @@ export default function AssessmentCreate() {
     if (!userItem) return "";
 
     return (
+      normalizeStudent(userItem).email ||
       userItem.email ||
       userItem.email_id ||
       userItem.mail ||
@@ -1208,9 +1208,15 @@ export default function AssessmentCreate() {
        */
       candidates:
         selectedUsers.map(
-          (selectedUser) => ({
-            student_id: userIdOf(selectedUser),
-          })
+          (selectedUser) => {
+            const normalized = normalizeStudent(selectedUser);
+            const email = normalized.email || getUserEmail(selectedUser);
+            return {
+              student_id: normalized.id,
+              ...(normalized.name ? { name: normalized.name } : {}),
+              ...(email ? { email } : {}),
+            };
+          }
         ),
 
       ...(studentFilters.institution[0] ? { institution_id: studentFilters.institution[0] } : {}),
@@ -1230,13 +1236,7 @@ export default function AssessmentCreate() {
     setError("");
 
     try {
-      let data = null;
-      let apiError = null;
-      try {
-        data = await createAssessment(payload);
-      } catch (err) {
-        apiError = err;
-      }
+      const data = await createAssessment(payload);
 
       const localId = `local-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
       const persistedId = String(data?.id || data?.assessment_id || data?.assessmentId || data?._id || localId);
@@ -1282,8 +1282,6 @@ export default function AssessmentCreate() {
 
       saveLocalAssignedAssessment(localRecord);
       setCreated(data || localRecord);
-      setCreatedLocally(true);
-      if (apiError) console.warn("Assessment saved locally; remote API was unavailable.", apiError);
     } catch (err) {
       console.error(
         "Create assessment error:",

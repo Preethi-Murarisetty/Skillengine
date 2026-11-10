@@ -18,6 +18,12 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../hooks/useAuth';
 import { isAdminUser } from '../../utils/admin';
+import {
+  PENDING_ASSESSMENT_EVENT,
+  assessmentStartPath,
+  getPendingAssessment,
+  markPendingAssessmentSeen,
+} from '../../utils/pendingAssessment';
 import BrandLogo from '../common/BrandLogo';
 
 const navItems = [
@@ -171,12 +177,32 @@ const ProfileDropdown = ({ user, onLogout }) => {
 
 const NotificationPanel = () => {
   const [isOpen, setIsOpen] = useState(false);
+  const [pendingAssessment, setPendingAssessmentState] = useState(() => getPendingAssessment());
   const panelRef = useRef(null);
-  const notifications = [
-    { title: 'Interview reminder', detail: 'Your mock interview is scheduled for today at 4:00 PM.', time: '2m ago', unread: true },
-    { title: 'Coding assignment', detail: 'New frontend challenge unlocked in your dashboard.', time: '18m ago', unread: true },
-    { title: 'Profile update', detail: 'Your latest skill summary has been synced.', time: '1h ago', unread: false },
-  ];
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const refresh = () => setPendingAssessmentState(getPendingAssessment());
+    window.addEventListener(PENDING_ASSESSMENT_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(PENDING_ASSESSMENT_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pendingAssessment?.unseen) {
+      setIsOpen(true);
+      markPendingAssessmentSeen();
+    }
+  }, [pendingAssessment?.unseen]);
+
+  const openAssessment = () => {
+    if (!pendingAssessment) return;
+    setIsOpen(false);
+    navigate(assessmentStartPath(pendingAssessment.token));
+  };
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -204,27 +230,32 @@ const NotificationPanel = () => {
         onClick={() => setIsOpen((open) => !open)}
       >
         <FaBell />
-        <span className="dashboard-notification-dot" aria-hidden="true" />
+        {pendingAssessment?.unseen && <span className="dashboard-notification-dot" aria-hidden="true" />}
       </button>
 
       {isOpen && (
         <div className="dashboard-notification-panel" role="dialog" aria-label="Notifications panel">
           <div className="dashboard-notification-header">
             <h3>Notifications</h3>
-            <span>3 new</span>
+            <span>{pendingAssessment?.unseen ? '1 new' : ' '}</span>
           </div>
 
           <div className="dashboard-notification-list">
-            {notifications.map((item, index) => (
-              <button type="button" key={index} className="dashboard-notification-item">
-                <span className={`dashboard-notification-bullet ${item.unread ? 'is-unread' : ''}`} />
+            {pendingAssessment && (
+              <button type="button" className="dashboard-notification-item" onClick={openAssessment}>
+                <span className="dashboard-notification-bullet is-unread" />
                 <div>
-                  <strong>{item.title}</strong>
-                  <p>{item.detail}</p>
-                  <small>{item.time}</small>
+                  <strong>Upcoming assessment</strong>
+                  <p>You have an assessment waiting. Click here to generate your key and begin.</p>
+                  <small>
+                    {Number.isFinite(Date.parse(pendingAssessment.receivedAt))
+                      ? new Date(pendingAssessment.receivedAt).toLocaleString()
+                      : 'Just now'}
+                  </small>
                 </div>
               </button>
-            ))}
+            )}
+            {!pendingAssessment && <p className="dashboard-notification-empty">No new notifications.</p>}
           </div>
         </div>
       )}

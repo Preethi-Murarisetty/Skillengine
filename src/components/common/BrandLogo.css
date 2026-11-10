@@ -48,6 +48,10 @@
   height: 52px;
 }
 
+.admin-sidebar-brand-logo .brand-logo__image {
+  object-position: center 46%;
+}
+
 .admin-header-brand-logo {
   width: 124px;
   height: 41px;

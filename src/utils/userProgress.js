@@ -22,6 +22,7 @@ const emptyProgress = () => ({
   version: STORAGE_VERSION,
   assessments: [],
   practiceSessions: [],
+  interviewSessions: [],
 });
 
 const attemptIdentity = (attempt) => attempt.attemptId
@@ -50,6 +51,7 @@ export const readUserProgress = (user) => {
       version: STORAGE_VERSION,
       assessments: Array.isArray(parsed.assessments) ? parsed.assessments : [],
       practiceSessions: Array.isArray(parsed.practiceSessions) ? parsed.practiceSessions : [],
+      interviewSessions: Array.isArray(parsed.interviewSessions) ? parsed.interviewSessions : [],
     };
   } catch {
     return emptyProgress();
@@ -67,6 +69,35 @@ const writeUserProgress = (user, progress) => {
   } catch {
     return false;
   }
+};
+
+export const recordInterviewSession = (user, session) => {
+  const score = Number(session?.overallScore ?? session?.overall_score ?? session?.score);
+  if (!getUserIdentifier(user) || !Number.isFinite(score)) return false;
+
+  const completedAt = session.completedAt || session.completed_at || new Date().toISOString();
+  const sessionId = String(session.sessionId || session.session_id || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const topic = String(session.topic || session.interviewType || 'Technical Interview');
+  const interviewSession = {
+    id: sessionId,
+    session_id: sessionId,
+    topic,
+    interview_type: topic,
+    overall_score: score,
+    max_score: 10,
+    status: 'Completed',
+    interview_date: completedAt,
+    completed_at: completedAt,
+    questions_answered: Number(session.questionsAnswered) || 0,
+  };
+  const progress = readUserProgress(user);
+  const interviewSessions = [
+    interviewSession,
+    ...progress.interviewSessions.filter((item) => item.id !== sessionId && item.session_id !== sessionId),
+  ].sort((left, right) => newestFirst(left, right, 'interview_date', 'attempt_number'))
+    .slice(0, MAX_HISTORY_ITEMS);
+
+  return writeUserProgress(user, { ...progress, interviewSessions });
 };
 
 export const recordPracticeSession = (user, session) => {

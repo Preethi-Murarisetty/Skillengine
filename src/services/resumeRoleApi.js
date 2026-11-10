@@ -41,4 +41,13 @@ export const getRoleRequirements = (role, resumeText) =>
     resume_text: resumeText,
   });
 
+export const discoverTopicsForRoleSkill = (role, skill) =>
+  resumeRoleApi.post('/interview/discover-topics', { role, skill }, { timeout: 200000 });
+
+export const generateRoleInterviewQuestions = (role, skill, concept = skill) =>
+  resumeRoleApi.post('/interview/concept-questions', { role, skill, concept }, { timeout: 240000 });
+
+export const evaluateRoleInterviewAnswer = (payload) =>
+  resumeRoleApi.post('/interview/evaluate', payload, { timeout: 150000 });
+
 export default resumeRoleApi;

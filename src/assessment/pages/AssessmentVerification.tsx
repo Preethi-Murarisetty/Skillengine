@@ -26,7 +26,6 @@ export default function AssessmentVerification() {
   } = useForm<Form>();
 
   const [invalid, setInvalid] = useState(false);
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [expires, setExpires] = useState<string | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
   const [sending, setSending] = useState(false);
@@ -37,7 +36,6 @@ export default function AssessmentVerification() {
     setSending(true);
     setNote(null);
     setInvalid(false);
-    setGeneratedKey(null);
     setExpires(null);
 
     try {
@@ -47,18 +45,11 @@ export default function AssessmentVerification() {
         throw new Error(result.message || 'The server could not generate the verification key.');
       }
 
-      const key = result.verificationKey ?? result.key;
-
-      if (key) {
-        setGeneratedKey(key);
-        setValue('key', key, { shouldValidate: true, shouldDirty: true });
-        setNote({ ok: true, text: result.message || 'Verification key generated successfully.' });
-      } else {
-        setNote({
-          ok: true,
-          text: result.message || 'Verification key sent. Please check your email.',
-        });
-      }
+      setValue('key', '', { shouldValidate: false, shouldDirty: false });
+      setNote({
+        ok: true,
+        text: result.message || 'Verification key sent. Please check your email.',
+      });
 
       if (result.expiresAt) {
         setExpires(new Date(result.expiresAt).toLocaleString());
@@ -140,20 +131,7 @@ export default function AssessmentVerification() {
           {sending ? 'Generating key...' : 'Generate / Regenerate Key'}
         </button>
 
-        {generatedKey && (
-          <div className="mt-5 rounded-xl border border-green-300 bg-green-50 p-4 text-center">
-            <div className="flex items-center justify-center gap-2 text-sm font-semibold text-green-700">
-              <CheckCircle2 size={18} />
-              Verification Key
-            </div>
-            <div className="mt-3 font-mono text-3xl font-bold tracking-[0.25em] text-green-800">
-              {generatedKey}
-            </div>
-            {expires && (
-              <div className="mt-2 text-xs text-green-700">Expires: {expires}</div>
-            )}
-          </div>
-        )}
+        {expires && <p className="mt-3 text-center text-xs text-gray-600">Key expires: {expires}</p>}
 
         {note && (
           <p

@@ -15,7 +15,11 @@ const startTimes = new WeakMap<object, number>();
 const DEV = import.meta.env.DEV;
 
 api.interceptors.request.use((cfg) => {
-  if (sessionToken) cfg.headers.set('Authorization', `Bearer ${sessionToken}`);
+  const storedToken = typeof localStorage === 'undefined'
+    ? ''
+    : localStorage.getItem('authToken') || localStorage.getItem('access_token') || localStorage.getItem('token') || '';
+  const bearerToken = sessionToken || storedToken;
+  if (bearerToken) cfg.headers.set('Authorization', `Bearer ${bearerToken}`);
   if (DEV) startTimes.set(cfg, performance.now());
   return cfg;
 });

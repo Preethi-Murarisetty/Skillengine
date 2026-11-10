@@ -8,6 +8,10 @@ import {
   resetPassword,
 } from '../../services/api';
 import { isAdminUser } from '../../utils/admin';
+import {
+  assessmentStartPath,
+  getPendingAssessment,
+} from '../../utils/pendingAssessment';
 import BrandLogo from '../common/BrandLogo';
 import {
   FaEye,
@@ -200,10 +204,14 @@ const Login = () => {
 
       // Admin -> Admin Dashboard
       // Normal user -> dashboard
+      const pending = getPendingAssessment();
+
       navigate(
         isAdminUser(loggedInUser)
           ? '/admin/dashboard'
-          : '/dashboard'
+          : pending
+            ? assessmentStartPath(pending.token)
+            : '/dashboard'
       );
     } catch (err) {
       if (!mountedRef.current) return;

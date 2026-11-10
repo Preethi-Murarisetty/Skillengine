@@ -19,7 +19,7 @@ import {
 } from 'react-icons/fa';
 import { useAuth } from '../../hooks/useAuth';
 import { interviewAPI } from '../../services/api';
-import { getResumeSkills } from '../../utils/skills';
+import { extractSkillsFromText, getResumeSkills, normalizeSkillList } from '../../utils/skills';
 import { analyzeResumeFile } from '../../services/atsResumeChecker';
 import { analyzeResumeWithBackend, discoverRolesFromResume, getRoleRequirements } from '../../services/resumeRoleApi';
 
@@ -33,6 +33,7 @@ const ResumeUpload = () => {
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [resumeData, setResumeData] = useState(null);
   const [atsResult, setAtsResult] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [resumeText, setResumeText] = useState('');
@@ -44,6 +45,8 @@ const ResumeUpload = () => {
 
   const handleSelectedFile = (selectedFile) => {
     if (!selectedFile) return;
+    sessionStorage.removeItem('roleInterviewContext');
+    sessionStorage.removeItem('roleInterviewQuestions');
     if (isAtsPage) {
       const extension = selectedFile.name.split('.').pop()?.toLowerCase();
       if (!['pdf', 'doc', 'docx'].includes(extension)) {
@@ -105,18 +108,65 @@ const ResumeUpload = () => {
       setProgress('Analyzing resume with AI...');
       const response = await interviewAPI.analyzeResume(file, user?.email);
       const payload = response?.data ?? response ?? {};
+      const source = payload?.data ?? payload;
+      const profile = source?.resume && typeof source.resume === 'object'
+        ? source.resume
+        : source;
+      const extractedText = findResumeText(source);
       const normalizedResponse = payload?.success === false
         ? payload
         : {
             success: payload?.success ?? true,
-            data: payload?.data ?? payload,
+            data: {
+              ...profile,
+              candidate_name: profile?.candidate_name || profile?.full_name || '',
+              candidate_email: profile?.candidate_email || profile?.email || user?.email || '',
+              experience: profile?.experience || profile?.work_experience || [],
+              experience_level: profile?.experience_level || {
+                seniority_level: profile?.total_experience || 'Professional',
+              },
+              extracted_text: extractedText,
+            },
             message: payload?.message || 'Analysis complete',
           };
 
       console.log('Analysis response:', response);
       console.log('Normalized response:', normalizedResponse);
 
-      const result = normalizedResponse.data ?? payload ?? {};
+      let result = normalizedResponse.data ?? payload ?? {};
+      let skills = normalizeSkillList(
+        getResumeSkills(profile),
+        getResumeSkills(source),
+        extractSkillsFromText(extractedText),
+      );
+
+      let roleInterviewContext = null;
+      try {
+        roleInterviewContext = JSON.parse(sessionStorage.getItem('roleInterviewContext') || 'null');
+      } catch {
+        roleInterviewContext = null;
+      }
+
+      if (!roleInterviewContext?.role) {
+        if (extractedText.length < 20) {
+          throw new Error('Resume analysis did not return enough extracted text to find matching roles.');
+        }
+        try {
+          setProgress('Finding a suitable interview role...');
+          const rolesResponse = await discoverRolesFromResume(extractedText);
+          const roles = normalizeRoles(unwrapResponse(rolesResponse));
+          setDiscoveredRoles(roles);
+          if (!roles.length) {
+            throw new Error('No matching roles were returned. Check the response from POST /roles/discover.');
+          }
+        } catch (roleError) {
+          throw new Error(roleError?.response?.data?.detail || roleError?.response?.data?.message || roleError?.message || 'Could not find matching roles for this resume.');
+        }
+      }
+
+      if (result && typeof result === 'object' && !Array.isArray(result)) {
+        result = { ...result, skills, resume_skills: skills, extracted_text: extractedText };
+      }
       const hasAnalysisData = !!result && (
         Array.isArray(result)
         || result.skills !== undefined
@@ -125,15 +175,14 @@ const ResumeUpload = () => {
         || result.projects !== undefined
         || result.education !== undefined
         || result.questions !== undefined
+        || source?.extracted_text !== undefined
+        || source?.resume !== undefined
       );
 
       if (normalizedResponse.success !== false && hasAnalysisData) {
         setAnalysisResult(result);
         setProgress('Analysis complete!');
 
-        const skills = Array.isArray(result)
-          ? getResumeSkills({ skills: result })
-          : getResumeSkills(result);
         const resumeData = {
           candidate_name: result.candidate_name || 'Candidate',
           candidate_email: result.candidate_email || '',
@@ -144,9 +193,11 @@ const ResumeUpload = () => {
           work_experience: result.experience || [],
           education: result.education || [],
           summary: result.summary || '',
+          extracted_text: extractedText,
           experience_level: result.experience_level || { seniority_level: 'Professional' }
         };
 
+        setResumeData(resumeData);
         sessionStorage.setItem('resumeData', JSON.stringify(resumeData));
         sessionStorage.setItem('resumeSkills', JSON.stringify(skills));
 
@@ -154,17 +205,7 @@ const ResumeUpload = () => {
           sessionStorage.setItem('analysisQuestions', JSON.stringify(result.questions));
         }
 
-        setProgress('Navigating to voice introduction...');
-
-        setTimeout(() => {
-          navigate('/intro', {
-            state: {
-              resumeData: resumeData,
-              skills: skills,
-              analysisResult: result
-            }
-          });
-        }, 500);
+        setProgress('');
 
       } else {
         const backendMessage = payload?.detail
@@ -258,7 +299,15 @@ const ResumeUpload = () => {
       ]);
       const analysis = unwrapResponse(backendResponse);
       const extractedText = findResumeText(analysis);
-      setResumeAnalysis(analysis);
+      const structuredResume = analysis?.resume && typeof analysis.resume === 'object'
+        ? analysis.resume
+        : {};
+      setResumeAnalysis({
+        ...structuredResume,
+        extracted_text: extractedText,
+        structured_extraction_status: analysis?.structured_extraction_status,
+        structured_extraction_message: analysis?.structured_extraction_message,
+      });
       if (localAtsResult) setAtsResult(localAtsResult);
       if (!extractedText) {
         throw new Error('Resume analysis completed, but the response did not include extracted resume text. Please check that POST /resume/analyze returns resume_text (or extracted_text/text).');
@@ -291,7 +340,14 @@ const ResumeUpload = () => {
     setError('');
     try {
       const response = await getRoleRequirements(roleName, resumeText);
-      setRoleRequirements(unwrapResponse(response));
+      const requirementsResponse = unwrapResponse(response);
+      setRoleRequirements(requirementsResponse);
+      const requirementData = requirementsResponse?.requirements || requirementsResponse;
+      sessionStorage.setItem('roleInterviewContext', JSON.stringify({
+        role: roleName,
+        resumeText,
+        requirements: requirementData,
+      }));
     } catch (requirementsError) {
       const backendData = requirementsError?.response?.data;
       const message = backendData?.detail || backendData?.message || backendData?.error || requirementsError?.message || 'Could not load role requirements.';
@@ -317,7 +373,7 @@ const ResumeUpload = () => {
     if (!experience || !Array.isArray(experience)) return null;
     
     return experience.map((exp, index) => (
-      <div key={index} className="experience-item" style={styles.experienceItem}>
+      <div key={index} className="experience-item" style={{ ...styles.experienceItem, ...(index === experience.length - 1 ? { borderBottom: 'none' } : {}) }}>
         <p><strong>Role:</strong> {exp.role || exp.position || 'N/A'}</p>
         <p><strong>Company:</strong> {exp.company || 'N/A'}</p>
         <p><strong>Duration:</strong> {exp.duration || exp.years || 'N/A'}</p>
@@ -333,7 +389,7 @@ const ResumeUpload = () => {
     if (!education || !Array.isArray(education)) return null;
     
     return education.map((edu, index) => (
-      <div key={index} style={styles.educationItem}>
+      <div key={index} style={{ ...styles.educationItem, ...(index === education.length - 1 ? { borderBottom: 'none' } : {}) }}>
         <p><strong>Institution:</strong> {edu.institution || edu.school || 'N/A'}</p>
         <p><strong>Degree:</strong> {edu.degree || 'N/A'}</p>
         <p><strong>Field:</strong> {edu.field || edu.major || 'N/A'}</p>
@@ -347,7 +403,7 @@ const ResumeUpload = () => {
     if (!projects || !Array.isArray(projects)) return null;
     
     return projects.map((project, index) => (
-      <div key={index} style={styles.projectItem}>
+      <div key={index} style={{ ...styles.projectItem, ...(index === projects.length - 1 ? { borderBottom: 'none' } : {}) }}>
         <p><strong>Name:</strong> {project.name || 'N/A'}</p>
         <p><strong>Description:</strong> {project.description || 'N/A'}</p>
         {project.technologies && (
@@ -680,6 +736,47 @@ const ResumeUpload = () => {
             </div>
           </div>
         )}
+
+        {analysisResult && discoveredRoles.length > 0 && (
+          <section style={styles.results} aria-live="polite">
+            <h3 style={styles.resultsTitle}>Recommended Interview Roles</h3>
+            <p style={{ color: '#98786a', marginBottom: 14 }}>Choose the role you want to practice for.</p>
+            <div style={{ display: 'grid', gap: 10 }}>
+              {discoveredRoles.map((role, index) => (
+                <button
+                  key={`${role.name}-${index}`}
+                  type="button"
+                  onClick={() => handleRoleSelect(role.name)}
+                  disabled={requirementsLoading}
+                  aria-pressed={selectedRole === role.name}
+                  style={{ textAlign: 'left', padding: 14, borderRadius: 8, border: selectedRole === role.name ? '2px solid #f4511e' : '1px solid #ead8ca', background: selectedRole === role.name ? '#fff3e9' : '#fffdf9', cursor: requirementsLoading ? 'wait' : 'pointer', color: '#3b2924' }}
+                >
+                  <strong>{role.name}</strong>
+                  {role.description && <span style={{ display: 'block', marginTop: 5, color: '#80685d', fontWeight: 400 }}>{role.description}</span>}
+                </button>
+              ))}
+            </div>
+            {requirementsLoading && <p role="status" style={{ color: '#a94727', marginTop: 12 }}>Loading requirements for {selectedRole}...</p>}
+            {roleRequirements && (
+              <div style={{ ...styles.section, marginTop: 14 }}>
+                <h4><FaBriefcase style={styles.headerIcon} /> {selectedRole} requirements</h4>
+                {(() => {
+                  const requirements = roleRequirements.requirements || roleRequirements;
+                  const skillAreas = requirements.skill_areas || [];
+                  const requiredSkills = requirements.required_skills || requirements.skills || requirements.common_skills || skillAreas.map((area) => area.skill).filter(Boolean);
+                  return requiredSkills.length > 0 ? <ul>{renderValueList(requiredSkills)}</ul> : <p>Role selected. You can continue to your interview introduction.</p>;
+                })()}
+                <button
+                  type="button"
+                  style={styles.button}
+                  onClick={() => navigate('/intro', { state: { resumeData, skills: resumeData?.skills || [], analysisResult } })}
+                >
+                  Continue with {selectedRole} <FaArrowRight />
+                </button>
+              </div>
+            )}
+          </section>
+        )}
       </div>
       </div>
 
@@ -869,23 +966,14 @@ const styles = {
   experienceItem: {
     padding: '8px 0',
     borderBottom: '1px solid #f8ebe2',
-    '&:last-child': {
-      borderBottom: 'none',
-    }
   },
   educationItem: {
     padding: '8px 0',
     borderBottom: '1px solid #f8ebe2',
-    '&:last-child': {
-      borderBottom: 'none',
-    }
   },
   projectItem: {
     padding: '8px 0',
     borderBottom: '1px solid #f8ebe2',
-    '&:last-child': {
-      borderBottom: 'none',
-    }
   },
   questionsList: {
     display: 'flex',

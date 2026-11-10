@@ -218,8 +218,10 @@ export const useInterview = () => {
 
       // The live backend persists completed interviews at POST /interviews.
       // Keep the local report usable even if persistence is unavailable.
+      let persisted = false;
       try {
         await api.post('/interviews', savePayload);
+        persisted = true;
         invalidateUserInterviewHistory(user);
         window.dispatchEvent(new Event('skillengine:interviews-updated'));
       } catch (saveError) {
@@ -237,7 +239,7 @@ export const useInterview = () => {
         console.error('Error saving report locally:', storageError);
       }
 
-      return { success: true, report: reportResult };
+      return { success: true, report: reportResult, persisted };
     } catch (err) {
       console.error('Complete interview error:', err);
       setError(err.message);

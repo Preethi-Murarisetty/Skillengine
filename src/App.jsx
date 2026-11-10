@@ -43,6 +43,7 @@ import Quiz from './components/Quiz/Quiz';
 import Quizstart from './components/Quiz/QuizStart';
 
 import AssessmentInterview from './assessment/AssessmentInterview';
+import AssessmentLinkGate from './assessment/AssessmentLinkGate';
 
 // ─── Assessment module ─────────────────────────────────────────────────
 
@@ -153,7 +154,9 @@ function App() {
                     </div>
                   }
                 >
-                  <AssessmentRoutes />
+                  <AssessmentLinkGate>
+                    <AssessmentRoutes />
+                  </AssessmentLinkGate>
                 </Suspense>
               }
             />
@@ -168,7 +171,9 @@ function App() {
                     </div>
                   }
                 >
-                  <AssessmentRoutes />
+                  <AssessmentLinkGate>
+                    <AssessmentRoutes />
+                  </AssessmentLinkGate>
                 </Suspense>
               }
             />

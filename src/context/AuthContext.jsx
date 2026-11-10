@@ -13,6 +13,8 @@ import {
   getCurrentUser,
 } from "../services/api";
 
+import { clearPendingAssessment } from "../utils/pendingAssessment";
+
 export const AuthContext = createContext(null);
 
 export const AuthProvider = ({ children }) => {
@@ -347,6 +349,7 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem("authToken");
     localStorage.removeItem("access_token");
     localStorage.removeItem("token");
+    clearPendingAssessment();
 
     // ----------------------------------------------------------
     // Clear React state
