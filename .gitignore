@@ -30,3 +30,8 @@ venv/
 node_modules/
 .env
 .env.local
+
+# Role Interview generated files and uploaded resumes
+roleinterview/uploads/
+roleinterview/**/__pycache__/
+roleinterview/**/*.pyc
