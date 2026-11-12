@@ -1,0 +1,567 @@
+﻿
+import json
+import re
+from typing import Any
+
+import requests
+
+from app.services.skill_matching import (
+    normalize_skill,
+    skills_match,
+    find_resume_skill_evidence,
+)
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5:1.5b"
+
+DIFFICULTIES = ["Easy", "Medium", "Hard"]
+
+SECTION_ALIASES = {
+    "summary": {"summary", "professional summary", "objective"},
+    "skills": {"skills", "technical skills", "key skills", "core skills"},
+    "projects": {"projects", "project", "academic projects"},
+    "experience": {
+        "experience", "work experience", "internship", "internships",
+        "professional experience",
+    },
+    "education": {"education", "academic background"},
+    "certifications": {"certifications", "certificates", "licenses"},
+}
+
+ALL_HEADINGS = set().union(*SECTION_ALIASES.values())
+ALL_HEADINGS.update({
+    "achievements", "languages", "personal details", "declaration",
+})
+
+
+def clean_line(line: str) -> str:
+    line = re.sub(r"^[\s•●▪◦*-]+", "", line or "")
+    return line.strip()
+
+
+def heading_name(line: str) -> str:
+    """Normalize a standalone section heading."""
+    line = clean_line(line).rstrip(":").strip()
+    return re.sub(r"\s+", " ", line.casefold())
+
+
+def _get_section(resume_text: str, wanted: set[str]) -> str:
+    """
+    Extract a section by matching standalone heading lines.
+    Does not confuse bullet content with section headings.
+    """
+    lines = (resume_text or "").replace("\r\n", "\n").replace("\r", "\n").splitlines()
+
+    wanted = {heading_name(x) for x in wanted}
+    inside = False
+    result = []
+
+    for raw_line in lines:
+        line = raw_line.strip()
+
+        if not line:
+            if inside:
+                result.append("")
+            continue
+
+        heading = heading_name(line)
+
+        if heading in ALL_HEADINGS:
+            if inside:
+                break
+            if heading in wanted:
+                inside = True
+            continue
+
+        if inside:
+            result.append(raw_line)
+
+    return "\n".join(result).strip()
+
+
+def extract_resume_skill_names(resume_text: str) -> list[str]:
+    """
+    Extract individual skills from the resume's Skills section.
+    Example:
+    Programming: Python(Pandas, NumPy), ETL Concepts
+    """
+    section = _get_section(resume_text, SECTION_ALIASES["skills"])
+
+    if not section:
+        return []
+
+    result = []
+    seen = set()
+
+    category_names = {
+        "data analytics and visualization",
+        "data analytics & visualization",
+        "data science",
+        "database technologies",
+        "programming",
+        "machine learning",
+        "tools",
+        "technical skills",
+        "skills",
+    }
+
+    for raw_line in section.splitlines():
+        line = clean_line(raw_line)
+        if not line:
+            continue
+
+        # Remove category label before colon.
+        if ":" in line:
+            prefix, remainder = line.split(":", 1)
+            if len(prefix.split()) <= 6:
+                line = remainder.strip()
+
+        # Keep skills inside parentheses as separate entries.
+        line = line.replace("(", ",").replace(")", ",")
+
+        for item in re.split(r"[,;|/\n]", line):
+            item = re.sub(r"\s+", " ", item).strip(" .:-\t")
+
+            if not item:
+                continue
+
+            if item.casefold() in category_names:
+                continue
+
+            key = item.casefold()
+            if key not in seen:
+                seen.add(key)
+                result.append(item)
+
+    return result
+
+
+def _resume_sections(resume_text: str) -> dict[str, str]:
+    return {
+        name: _get_section(resume_text, aliases)
+        for name, aliases in SECTION_ALIASES.items()
+    }
+
+
+def _line_is_in_section(line: str, section: str) -> bool:
+    if not line or not section:
+        return False
+
+    target = re.sub(r"\s+", " ", line).strip().casefold()
+
+    return any(
+        re.sub(r"\s+", " ", item).strip().casefold() == target
+        for item in section.splitlines()
+        if item.strip()
+    )
+
+
+def _find_literal_evidence(skill: str, text: str) -> list[str]:
+    """Find real lines that explicitly mention the skill phrase."""
+    if not skill or not text:
+        return []
+
+    phrase = normalize_skill(skill)
+    if not phrase:
+        return []
+
+    pattern = re.compile(
+        r"(?<!\w)" + re.escape(phrase) + r"(?!\w)",
+        re.IGNORECASE,
+    )
+
+    matches = []
+    for line in text.splitlines():
+        line = line.strip()
+        if line and pattern.search(normalize_skill(line)):
+            matches.append(line[:500])
+
+    return list(dict.fromkeys(matches))
+
+
+def extract_resume_evidence(
+    skill: str,
+    resume_text: str,
+    ai_evidence: str = "",
+    evidence_type: str = "",
+) -> dict[str, Any]:
+    """
+    Check whether the resume supports a skill.
+
+    Evidence from the Skills section is kept separate from project
+    evidence and internship/work evidence.
+    """
+    sections = _resume_sections(resume_text)
+
+    skill_evidence = []
+    project_evidence = []
+    experience_evidence = []
+
+    # First use extracted skill names and the existing alias matcher.
+    for listed_skill in extract_resume_skill_names(resume_text):
+        if skills_match(skill, listed_skill):
+            skill_evidence.append(listed_skill)
+
+    # Search each section separately. This prevents summary/skills text
+    # from accidentally being reported as project evidence.
+    for line in _find_literal_evidence(skill, sections["skills"]):
+        skill_evidence.append(line)
+
+    for line in _find_literal_evidence(skill, sections["summary"]):
+        skill_evidence.append(line)
+
+    for line in _find_literal_evidence(skill, sections["certifications"]):
+        skill_evidence.append(line)
+
+    for line in _find_literal_evidence(skill, sections["projects"]):
+        project_evidence.append(line)
+
+    for line in _find_literal_evidence(skill, sections["experience"]):
+        experience_evidence.append(line)
+
+    # Use the existing helper to find alias evidence in the full resume.
+    # Assign each matching line to its actual section only.
+    try:
+        alias_lines = find_resume_skill_evidence(skill, resume_text)
+    except Exception:
+        alias_lines = []
+
+    for line in alias_lines:
+        if _line_is_in_section(line, sections["skills"]):
+            skill_evidence.append(line)
+        elif _line_is_in_section(line, sections["summary"]):
+            skill_evidence.append(line)
+        elif _line_is_in_section(line, sections["certifications"]):
+            skill_evidence.append(line)
+        elif _line_is_in_section(line, sections["projects"]):
+            project_evidence.append(line)
+        elif _line_is_in_section(line, sections["experience"]):
+            experience_evidence.append(line)
+
+    # AI-generated evidence is never trusted unless it matches a real line.
+    if ai_evidence:
+        for real_line in resume_text.splitlines():
+            if (
+                real_line.strip()
+                and ai_evidence.strip() in real_line.strip()
+            ):
+                if _line_is_in_section(real_line.strip(), sections["projects"]):
+                    project_evidence.append(real_line.strip())
+                elif _line_is_in_section(
+                    real_line.strip(), sections["experience"]
+                ):
+                    experience_evidence.append(real_line.strip())
+                else:
+                    skill_evidence.append(real_line.strip())
+                break
+
+    skill_evidence = list(dict.fromkeys(skill_evidence))
+    project_evidence = list(dict.fromkeys(project_evidence))
+    experience_evidence = list(dict.fromkeys(experience_evidence))
+
+    supported = bool(
+        skill_evidence or project_evidence or experience_evidence
+    )
+
+    return {
+        "resume_skill_evidence": skill_evidence[:5],
+        "resume_project_evidence": project_evidence[:5],
+        "resume_experience_evidence": experience_evidence[:5],
+        "resume_supported": supported,
+    }
+
+
+def call_ollama(prompt: str) -> str:
+    response = requests.post(
+        OLLAMA_URL,
+        json={
+            "model": OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "format": "json",
+            "options": {"temperature": 0.1},
+        },
+        timeout=180,
+    )
+    response.raise_for_status()
+    return str(response.json().get("response", "")).strip()
+
+
+def parse_json_response(raw: str) -> dict[str, Any]:
+    raw = (raw or "").strip()
+
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
+    start = raw.find("{")
+    end = raw.rfind("}")
+
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(raw[start:end + 1])
+            if isinstance(parsed, dict):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+    return {}
+
+
+def normalize_concepts(concepts: Any) -> list[dict[str, Any]]:
+    result = []
+    seen = set()
+
+    if not isinstance(concepts, list):
+        return result
+
+    for item in concepts:
+        if isinstance(item, str):
+            name = item.strip()
+        elif isinstance(item, dict):
+            name = str(
+                item.get("name")
+                or item.get("concept")
+                or item.get("title")
+                or ""
+            ).strip()
+        else:
+            continue
+
+        key = name.casefold()
+        if name and key not in seen:
+            seen.add(key)
+            result.append({
+                "name": name,
+                "difficulty": DIFFICULTIES.copy(),
+            })
+
+    return result
+
+
+def generate_concepts(skill: str, role: str) -> list[dict[str, Any]]:
+    prompt = f"""
+Return only valid JSON:
+{{
+  "concepts": [
+    {{"name": "Concept name"}}
+  ]
+}}
+
+Create 4 to 8 distinct interview concepts for the skill "{skill}"
+relevant to the target role "{role}".
+
+Rules:
+- Only return concept names.
+- Do not generate interview questions.
+- Do not claim the candidate knows these concepts.
+- Keep concepts specific to the skill and role.
+"""
+    try:
+        data = parse_json_response(call_ollama(prompt))
+        concepts = normalize_concepts(data.get("concepts", []))
+        if concepts:
+            return concepts
+    except Exception as exc:
+        print(f"WARNING: Concept generation failed for {skill}: {exc}")
+
+    return [{"name": skill, "difficulty": DIFFICULTIES.copy()}]
+
+
+def build_role_prompt(role: str, resume_text: str) -> str:
+    return f"""
+Return only valid JSON without markdown.
+
+Analyze the candidate's resume for the target role "{role}".
+
+Use this schema:
+{{
+  "role_required_skills": ["skill name"],
+  "skill_areas": [
+    {{
+      "skill": "skill name",
+      "resume_evidence": "exact short quote from resume or empty string",
+      "concepts": [
+        {{"name": "concept name"}}
+      ]
+    }}
+  ]
+}}
+
+Rules:
+- Return 5 to 10 relevant skills required for the target role.
+- Include relevant skills even when they are absent from the resume.
+- Never claim a skill is supported without actual resume evidence.
+- resume_evidence must be copied exactly from the resume.
+- Do not generate interview questions.
+- Include distinct concepts for each skill.
+
+RESUME:
+{(resume_text or "")[:9000]}
+"""
+
+
+def generate_role_requirements(
+    role: str,
+    resume_text: str,
+) -> dict[str, Any]:
+    """Generate role requirements and compare them with resume evidence."""
+    resume_text = resume_text or ""
+    resume_skills = extract_resume_skill_names(resume_text)
+
+    raw_required = []
+    ai_areas = []
+
+    try:
+        data = parse_json_response(
+            call_ollama(build_role_prompt(role, resume_text))
+        )
+        raw_required = data.get("role_required_skills", [])
+        ai_areas = data.get("skill_areas", [])
+    except Exception as exc:
+        print(f"WARNING: Role requirements generation failed: {exc}")
+
+    if not isinstance(raw_required, list):
+        raw_required = []
+
+    if not isinstance(ai_areas, list):
+        ai_areas = []
+
+    required_skills = []
+    for item in raw_required:
+        if not isinstance(item, str):
+            continue
+
+        skill = item.strip()
+        if skill and not any(
+            skills_match(skill, existing)
+            for existing in required_skills
+        ):
+            required_skills.append(skill)
+
+    areas = []
+
+    for item in ai_areas:
+        if isinstance(item, str):
+            item = {"skill": item}
+
+        if not isinstance(item, dict):
+            continue
+
+        skill = str(item.get("skill") or item.get("name") or "").strip()
+        if not skill:
+            continue
+
+        existing = next(
+            (
+                area for area in areas
+                if skills_match(skill, area["skill"])
+            ),
+            None,
+        )
+
+        if existing:
+            if not existing["concepts"] and item.get("concepts"):
+                existing["concepts"] = item.get("concepts", [])
+            continue
+
+        areas.append({
+            "skill": skill,
+            "resume_evidence": str(item.get("resume_evidence") or ""),
+            "concepts": item.get("concepts", []),
+        })
+
+    # Ensure every role-required skill has an area.
+    for skill in required_skills:
+        if not any(skills_match(skill, area["skill"]) for area in areas):
+            areas.append({
+                "skill": skill,
+                "resume_evidence": "",
+                "concepts": [],
+            })
+
+    # Also expose resume skills for coverage analysis.
+    for skill in resume_skills:
+        if not any(skills_match(skill, area["skill"]) for area in areas):
+            areas.append({
+                "skill": skill,
+                "resume_evidence": "",
+                "concepts": [],
+            })
+
+    for area in areas:
+        evidence = extract_resume_evidence(
+            skill=area["skill"],
+            resume_text=resume_text,
+            ai_evidence=area.get("resume_evidence", ""),
+        )
+
+        area["resume_skill_evidence"] = evidence["resume_skill_evidence"]
+        area["resume_project_evidence"] = evidence["resume_project_evidence"]
+        area["resume_experience_evidence"] = evidence[
+            "resume_experience_evidence"
+        ]
+        area["resume_supported"] = evidence["resume_supported"]
+
+        all_evidence = (
+            area["resume_skill_evidence"]
+            + area["resume_project_evidence"]
+            + area["resume_experience_evidence"]
+        )
+        area["resume_evidence"] = all_evidence[0] if all_evidence else None
+
+        concepts = normalize_concepts(area.get("concepts", []))
+        if not concepts:
+            concepts = generate_concepts(area["skill"], role)
+
+        area["concepts"] = concepts
+
+    def get_area(skill: str) -> dict[str, Any] | None:
+        return next(
+            (
+                area for area in areas
+                if skills_match(skill, area["skill"])
+            ),
+            None,
+        )
+
+    common_skills = []
+    missing_role_skills = []
+
+    for skill in required_skills:
+        area = get_area(skill)
+        if area and area["resume_supported"]:
+            common_skills.append(skill)
+        else:
+            missing_role_skills.append(skill)
+
+    resume_only_skills = [
+        skill for skill in resume_skills
+        if not any(
+            skills_match(skill, required)
+            for required in required_skills
+        )
+    ]
+
+    print("DEBUG resume_skills:", resume_skills)
+    print("DEBUG raw_required_skills:", raw_required)
+    print("DEBUG final_area_skills:", [area["skill"] for area in areas])
+    print("DEBUG common_skills:", common_skills)
+    print("DEBUG missing_role_skills:", missing_role_skills)
+
+    return {
+        "role": role,
+        "resume_skills": resume_skills,
+        "role_required_skills": required_skills,
+        "common_skills": common_skills,
+        "resume_only_skills": resume_only_skills,
+        "missing_role_skills": missing_role_skills,
+        "skill_areas": areas,
+        "note": (
+            "Resume-supported skills are based on evidence found in the resume. "
+            "Required skills without evidence are listed as missing."
+        ),
+    }

@@ -1,0 +1,145 @@
+﻿from difflib import SequenceMatcher
+import re
+
+
+SKILL_GROUPS = [
+    {
+        "python",
+        "python programming",
+        "programming in python",
+        "python development",
+    },
+    {
+        "data cleaning",
+        "data cleansing",
+        "data preprocessing",
+        "data pre processing",
+        "data wrangling",
+        "cleaning datasets",
+        "cleaning data",
+        "cleaned datasets",
+        "cleaned data",
+        "cleaning and preprocessing datasets",
+        "preprocessed datasets",
+        "preprocessed data",
+    },
+    {
+        "data visualization",
+        "data visualisation",
+        "data visualization tools",
+        "data visualisation tools",
+        "creating visualizations",
+        "creating visualisations",
+        "creating charts and graphs",
+        "created dashboards",
+        "developed dashboards",
+        "built dashboards",
+        "building dashboards",
+        "dashboard creation",
+        "dashboard development",
+    },
+    {
+        "statistical analysis",
+        "statistical data analysis",
+        "statistics",
+        "descriptive statistics",
+    },
+    {
+        "sql",
+        "sql querying",
+        "writing sql queries",
+        "database querying",
+    },
+    {
+        "machine learning",
+        "ml",
+        "machine learning algorithms",
+    },
+    {
+        "data analysis",
+        "data analytics",
+        "analyzing data",
+        "analysing data",
+    },
+]
+
+
+def normalize_skill(value: str) -> str:
+    value = str(value or "").casefold()
+    value = value.replace("&", " and ")
+    value = re.sub(r"[^a-z0-9+#. ]+", " ", value)
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _normalized_groups():
+    return [
+        {normalize_skill(alias) for alias in group}
+        for group in SKILL_GROUPS
+    ]
+
+
+def canonical_skill(value: str) -> str:
+    normalized = normalize_skill(value)
+
+    for group in _normalized_groups():
+        if normalized in group:
+            return sorted(group)[0]
+
+    return normalized
+
+
+def skills_match(first: str, second: str) -> bool:
+    a = normalize_skill(first)
+    b = normalize_skill(second)
+
+    if not a or not b:
+        return False
+
+    if a == b:
+        return True
+
+    if canonical_skill(a) == canonical_skill(b):
+        return True
+
+    # Conservative fallback: only very similar complete skill names.
+    return SequenceMatcher(None, a, b).ratio() >= 0.90
+
+
+def find_resume_skill_evidence(
+    skill: str,
+    resume_text: str,
+) -> list[str]:
+    normalized_skill = normalize_skill(skill)
+
+    if not normalized_skill:
+        return []
+
+    aliases = {normalized_skill}
+
+    for group in _normalized_groups():
+        if normalized_skill in group:
+            aliases.update(group)
+            break
+
+    evidence = []
+    lines = re.split(r"[\r\n]+|(?<=[.!?])\s+", resume_text or "")
+
+    for line in lines:
+        original_line = line.strip()
+
+        if not original_line:
+            continue
+
+        normalized_line = normalize_skill(original_line)
+
+        for alias in aliases:
+            if not alias:
+                continue
+
+            pattern = r"(?<!\w)" + re.escape(alias) + r"(?!\w)"
+
+            if re.search(pattern, normalized_line):
+                evidence.append(original_line[:500])
+                break
+
+    return list(dict.fromkeys(evidence))[:5]

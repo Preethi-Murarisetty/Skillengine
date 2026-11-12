@@ -1,0 +1,560 @@
+﻿from __future__ import annotations
+
+import json
+import re
+from typing import Any
+
+import requests
+
+
+OLLAMA_URL = "http://localhost:11434/api/generate"
+OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_TIMEOUT = 180
+
+PROJECT_WORDS = re.compile(
+    r"\b(project|projects|dashboard|developed|built|created|implemented|"
+    r"designed|analyzed|analysis|analytics|using|application|system|"
+    r"model|report|visualization|visualisation)\b",
+    re.IGNORECASE,
+)
+
+
+
+def normalize_text(text: str) -> str:
+    """Normalize whitespace for reliable text matching."""
+    return re.sub(r"\s+", " ", str(text or "")).strip()
+
+
+def mentions_skill(skill, text):
+    """Check whether a skill name appears in text, case-insensitively."""
+    if not isinstance(skill, str) or not skill.strip():
+        return False
+    if not isinstance(text, str) or not text.strip():
+        return False
+
+    pattern = r"(?<!\w)" + re.escape(skill.strip()) + r"(?!\w)"
+    return re.search(pattern, text, re.IGNORECASE) is not None
+
+def is_skills_list(text: str) -> bool:
+    """Identify a resume sentence or line that lists skills."""
+    return bool(
+        re.search(
+            r"\b(?:technical\s+)?skills?\s*:",
+            text or "",
+            re.IGNORECASE,
+        )
+    )
+
+
+def find_exact_excerpt(resume_text: str, skill: str) -> list[str]:
+    """Find resume lines that mention a skill."""
+    excerpts = []
+
+    for line in re.split(r"[\r\n]+", resume_text or ""):
+        line = normalize_text(line)
+        if line and mentions_skill(line, skill):
+            excerpts.append(line[:500])
+
+    if not excerpts:
+        for sentence in re.split(r"(?<=[.!?])\s+", resume_text or ""):
+            sentence = normalize_text(sentence)
+            if sentence and mentions_skill(sentence, skill):
+                excerpts.append(sentence[:500])
+
+    return list(dict.fromkeys(excerpts))[:5]
+
+
+def extract_resume_skill_names(resume_text: str) -> list[str]:
+    """Extract skill names from a Skills: section in the resume."""
+    skills = []
+
+    match = re.search(
+        r"\b(?:technical\s+)?skills?\s*:\s*(.*)",
+        resume_text or "",
+        re.IGNORECASE,
+    )
+
+    if not match:
+        return skills
+
+    content = match.group(1)
+
+    content = re.split(
+        r"\b(?:project|projects|experience|education|"
+        r"certifications?|summary|objective)\s*:",
+        content,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0]
+
+    for candidate in re.split(r"[,;|•\r\n]", content):
+        skill = candidate.strip(" \t-•.")
+        if skill and len(skill) <= 60:
+            if not any(item.casefold() == skill.casefold() for item in skills):
+                skills.append(skill)
+
+    return skills
+
+
+def extract_resume_evidence(
+    skill,
+    resume_text,
+    ai_evidence="",
+    evidence_type="",
+):
+    """Separate skills-list evidence from project/experience evidence."""
+    direct_evidence = []
+    project_evidence = []
+
+    # Split common resume sections even when the input is one line.
+    section_pattern = (
+        r"(?i)\b(?=skills?\s*:|technical\s+skills?\s*:|"
+        r"projects?\s*:|experience\s*:|education\s*:|"
+        r"certifications?\s*:)"
+    )
+    sections = [
+        part.strip()
+        for part in re.split(section_pattern, resume_text or "")
+        if part.strip()
+    ]
+
+    for part in sections:
+        if not mentions_skill(skill, part):
+            continue
+
+        if is_skills_list(part):
+            # Keep only the skill name, not the whole comma-separated list.
+            direct_evidence.append(skill)
+        elif PROJECT_WORDS.search(part):
+            project_evidence.append(part[:500])
+            direct_evidence.append(part[:500])
+        else:
+            direct_evidence.append(part[:500])
+
+    verified_excerpts = find_exact_excerpt(resume_text or "", ai_evidence)
+    for verified_excerpt in verified_excerpts:
+        if not mentions_skill(skill, verified_excerpt):
+            continue
+
+        if is_skills_list(verified_excerpt):
+            direct_evidence.append(skill)
+        else:
+            direct_evidence.append(verified_excerpt)
+            if PROJECT_WORDS.search(verified_excerpt):
+                project_evidence.append(verified_excerpt)
+
+    direct_evidence = list(dict.fromkeys(direct_evidence))
+    project_evidence = list(dict.fromkeys(project_evidence))
+
+    return {
+        "resume_skill_evidence": direct_evidence,
+        "resume_project_evidence": project_evidence,
+        "resume_supported": bool(direct_evidence or project_evidence),
+    }
+
+def call_ollama(prompt: str) -> str:
+    """Send a prompt to the local Ollama model."""
+    try:
+        response = requests.post(
+            OLLAMA_URL,
+            json={
+                "model": OLLAMA_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "format": "json",
+                "options": {
+                    "temperature": 0.1,
+                    "num_predict": 1800,
+                },
+            },
+            timeout=OLLAMA_TIMEOUT,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        answer = payload.get("response", "")
+
+        if not answer:
+            raise ValueError("Ollama returned an empty response.")
+
+        return answer
+
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            "Cannot connect to Ollama. Check that Ollama is running "
+            "and the selected model is installed."
+        ) from exc
+
+
+def parse_json_response(raw_response: str) -> dict[str, Any]:
+    """Parse the JSON object returned by Ollama."""
+    raw_response = (raw_response or "").strip()
+
+    try:
+        result = json.loads(raw_response)
+    except json.JSONDecodeError:
+        start = raw_response.find("{")
+        end = raw_response.rfind("}")
+
+        if start < 0 or end <= start:
+            raise ValueError(
+                "Ollama did not return valid JSON. Please try again."
+            )
+
+        result = json.loads(raw_response[start:end + 1])
+
+    if not isinstance(result, dict):
+        raise ValueError("Ollama response must be a JSON object.")
+
+    return result
+
+
+def generate_concepts(role: str, skill: str) -> list[dict[str, Any]]:
+    """Generate at least three distinct concepts for a skill."""
+    prompt = f"""
+You are designing a technical interview assessment.
+
+Selected role: {role}
+Skill area: {skill}
+
+Generate at least 3 distinct, relevant concepts for interviewing a candidate
+about this skill in the selected role.
+
+Requirements:
+- Concepts must be specific to the skill, not generic duplicates.
+- Include foundational, intermediate, and advanced concepts where relevant.
+- Assign each concept one difficulty: Easy, Medium, or Hard.
+- Across the concepts, include all three difficulty levels.
+- Do not claim the candidate knows any concept.
+- Do not include interview questions yet.
+
+Return only valid JSON in this exact structure:
+{{
+  "concepts": [
+    {{"name": "concept name", "difficulty": ["Easy"]}},
+    {{"name": "concept name", "difficulty": ["Medium"]}},
+    {{"name": "concept name", "difficulty": ["Hard"]}}
+  ]
+}}
+"""
+    result = parse_json_response(call_ollama(prompt))
+    concepts = result.get("concepts", [])
+    return normalize_concepts(concepts)
+
+
+def normalize_concepts(
+    concepts: Any,
+) -> list[dict[str, Any]]:
+    """Clean concept names and difficulty labels."""
+    if not isinstance(concepts, list):
+        return []
+
+    cleaned = []
+    seen = set()
+    allowed = {"Easy", "Medium", "Hard"}
+
+    for item in concepts:
+        if not isinstance(item, dict):
+            continue
+
+        name = normalize_text(item.get("name", ""))
+        if not name or name.casefold() in seen:
+            continue
+
+        raw_difficulty = item.get("difficulty", [])
+        if isinstance(raw_difficulty, str):
+            raw_difficulty = [raw_difficulty]
+        if not isinstance(raw_difficulty, list):
+            raw_difficulty = []
+
+        difficulty = []
+        for value in raw_difficulty:
+            normalized = str(value).strip().title()
+            if normalized in allowed and normalized not in difficulty:
+                difficulty.append(normalized)
+
+        if not difficulty:
+            difficulty = ["Medium"]
+
+        cleaned.append({
+            "name": name,
+            "difficulty": difficulty,
+        })
+        seen.add(name.casefold())
+
+    return cleaned
+
+
+def ensure_difficulty_coverage(
+    role: str,
+    skill: str,
+    concepts: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """
+    Ensure at least three concepts and coverage of Easy, Medium and Hard.
+    Ask Ollama for additional concepts when the first response is incomplete.
+    """
+    concepts = normalize_concepts(concepts)
+    covered = {
+        difficulty
+        for concept in concepts
+        for difficulty in concept["difficulty"]
+    }
+
+    missing = [
+        difficulty
+        for difficulty in ("Easy", "Medium", "Hard")
+        if difficulty not in covered
+    ]
+
+    needs_more = len(concepts) < 3 or bool(missing)
+
+    if needs_more:
+        prompt = f"""
+Selected role: {role}
+Skill: {skill}
+
+Existing concepts:
+{json.dumps(concepts, ensure_ascii=False)}
+
+Generate additional concepts for this skill.
+Missing difficulty levels: {json.dumps(missing)}.
+
+Return enough concepts so the final collection has at least 3 distinct concepts
+and covers Easy, Medium, and Hard. Do not repeat existing concepts.
+Use this JSON format:
+{{
+  "concepts": [
+    {{"name": "concept name", "difficulty": ["Easy"]}}
+  ]
+}}
+"""
+        try:
+            extra_result = parse_json_response(call_ollama(prompt))
+            extras = normalize_concepts(extra_result.get("concepts", []))
+            concepts = normalize_concepts(concepts + extras)
+        except (RuntimeError, ValueError, requests.RequestException):
+            # Do not silently invent concepts if the model is unavailable.
+            pass
+
+    return concepts
+
+
+def build_role_prompt(role: str, resume_text: str) -> str:
+    resume_skills = extract_resume_skill_names(resume_text)
+
+    return f"""
+You are an expert technical hiring analyst.
+
+Selected job role: {role}
+
+Candidate resume:
+{resume_text[:12000]}
+
+Skills explicitly mentioned in the resume:
+{json.dumps(resume_skills, ensure_ascii=False)}
+
+Task:
+Create a competency map for the selected job role.
+
+Return valid JSON with TWO separate lists:
+1. role_required_skills: skills genuinely required for this role.
+2. skill_areas: interview skill areas and concepts for those role skills,
+   followed by any resume-listed skills not already included.
+
+Rules:
+- Generate 6 to 8 distinct role-required skills appropriate for the selected role.
+- Do not simply copy the candidate's resume skills into role_required_skills.
+- Determine role requirements from the selected role, not just the resume.
+- Include every explicitly listed resume skill in skill_areas.
+- Avoid duplicate skills across skill_areas.
+- For every skill area, generate exactly 3 distinct concepts:
+  one Easy, one Medium, and one Hard.
+- Concepts must be specific to the skill and relevant to the selected role.
+- Resume mentions are evidence only, not proof of proficiency.
+- Do not invent candidate experience or certifications.
+- Return JSON only, without markdown or explanations.
+
+Required JSON structure:
+{{
+  "role": {json.dumps(role)},
+  "role_required_skills": [
+    "role-specific skill 1",
+    "role-specific skill 2"
+  ],
+  "skill_areas": [
+    {{
+      "skill": "skill name",
+      "concepts": [
+        {{"name": "basic concept", "difficulty": ["Easy"]}},
+        {{"name": "intermediate concept", "difficulty": ["Medium"]}},
+        {{"name": "advanced concept", "difficulty": ["Hard"]}}
+      ]
+    }}
+  ]
+}}
+"""
+
+def generate_role_requirements(
+    role: str,
+    resume_text: str,
+) -> dict[str, Any]:
+    """
+    Generate role requirements, preserve resume-listed skills, and attach
+    resume evidence without treating resume mentions as proven proficiency.
+    """
+    role = normalize_text(role)
+    resume_text = str(resume_text or "").strip()
+
+    if not role:
+        raise ValueError("Role must not be empty.")
+
+    if not resume_text:
+        raise ValueError("Resume text must not be empty.")
+
+    raw_response = call_ollama(build_role_prompt(role, resume_text))
+    result = parse_json_response(raw_response)
+
+    raw_areas = result.get("skill_areas", [])
+    if not isinstance(raw_areas, list):
+        raw_areas = []
+
+    # Normalize AI-generated skill areas while preserving their order.
+    skill_areas = []
+    seen_skills = set()
+
+    for area in raw_areas:
+        if not isinstance(area, dict):
+            continue
+
+        skill = normalize_text(area.get("skill", ""))
+        if not skill or skill.casefold() in seen_skills:
+            continue
+
+        concepts = normalize_concepts(area.get("concepts", []))
+
+        skill_areas.append({
+            "skill": skill,
+            "concepts": concepts,
+        })
+        seen_skills.add(skill.casefold())
+
+    # Add role-required skills returned separately by Ollama.
+    raw_required_skills = result.get("role_required_skills", [])
+    if not isinstance(raw_required_skills, list):
+        raw_required_skills = []
+
+    for required_skill in raw_required_skills:
+        if not isinstance(required_skill, str):
+            continue
+
+        required_skill = normalize_text(required_skill)
+        if not required_skill:
+            continue
+
+        if required_skill.casefold() not in seen_skills:
+            skill_areas.append({
+                "skill": required_skill,
+                "concepts": [],
+            })
+            seen_skills.add(required_skill.casefold())
+
+    # Preserve all explicitly listed resume skills, even when AI omitted them.
+    resume_skills = extract_resume_skill_names(resume_text)
+
+    for skill in resume_skills:
+        if skill.casefold() not in seen_skills:
+            skill_areas.append({
+                "skill": skill,
+                "concepts": [],
+            })
+            seen_skills.add(skill.casefold())
+
+    # Generate or repair concept coverage for every skill area.
+    final_areas = []
+
+    for area in skill_areas:
+        skill = area["skill"]
+        concepts = area["concepts"]
+
+        if len(concepts) < 3 or {
+            difficulty
+            for concept in concepts
+            for difficulty in concept["difficulty"]
+        } != {"Easy", "Medium", "Hard"}:
+            try:
+                concepts = ensure_difficulty_coverage(
+                    role,
+                    skill,
+                    concepts,
+                )
+            except (RuntimeError, ValueError):
+                # Retain valid AI-generated concepts if a follow-up call fails.
+                concepts = normalize_concepts(concepts)
+
+        evidence = extract_resume_evidence(skill, resume_text)
+
+        final_areas.append({
+            "skill": skill,
+            "resume_skill_evidence": evidence["resume_skill_evidence"],
+            "resume_project_evidence": evidence["resume_project_evidence"],
+            "resume_supported": bool(
+                evidence["resume_skill_evidence"]
+                or evidence["resume_project_evidence"]
+            ),
+            "proficiency_status": "Not assessed",
+            "concepts": concepts,
+        })
+
+    # Compare resume-listed skills with the role-required skills.
+    resume_skill_keys = {skill.casefold() for skill in resume_skills}
+    required_skill_keys = {
+        skill.casefold()
+        for skill in raw_required_skills
+        if isinstance(skill, str) and normalize_text(skill)
+    }
+
+    # Use the final normalized skill areas for display names.
+    common_skills = [
+        area["skill"]
+        for area in final_areas
+        if area["skill"].casefold() in resume_skill_keys
+        and area["skill"].casefold() in required_skill_keys
+    ]
+
+    resume_only_skills = [
+        skill for skill in resume_skills
+        if skill.casefold() not in required_skill_keys
+    ]
+
+    missing_role_skills = [
+        area["skill"]
+        for area in final_areas
+        if area["skill"].casefold() in required_skill_keys
+        and area["skill"].casefold() not in resume_skill_keys
+    ]
+
+    resume_skill_names = [
+        area["skill"]
+        for area in final_areas
+        if area["skill"].casefold() in resume_skill_keys
+    ]
+
+    role_required_skills = [
+        area["skill"]
+        for area in final_areas
+        if area["skill"].casefold() in required_skill_keys
+    ]
+
+    return {
+        "role": role,
+        "resume_skills": resume_skill_names,
+        "role_required_skills": role_required_skills,
+        "common_skills": common_skills,
+        "resume_only_skills": resume_only_skills,
+        "missing_role_skills": missing_role_skills,
+        "skill_areas": final_areas,
+        "note": (
+            "Resume mentions indicate documented evidence only. "
+            "Proficiency must be determined from interview answers."
+        ),
+    }
