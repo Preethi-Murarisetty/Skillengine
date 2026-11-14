@@ -59,9 +59,10 @@ export default defineConfig(({ mode }) => {
   const aiApiUrl =
     env.VITE_AI_API_URL ||
     'http://100.117.158.50:8100';
+  const resumeApiPort = env.ROLEINTERVIEW_PORT || '8000';
   const resumeApiUrl =
     env.VITE_RESUME_API_URL ||
-    'http://127.0.0.1:8002';
+    `http://127.0.0.1:${resumeApiPort}`;
 
   return {
     plugins: [

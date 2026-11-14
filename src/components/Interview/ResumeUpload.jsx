@@ -34,6 +34,8 @@ const ResumeUpload = () => {
   const [progress, setProgress] = useState('');
   const [analysisResult, setAnalysisResult] = useState(null);
   const [resumeData, setResumeData] = useState(null);
+  const [profileReviewText, setProfileReviewText] = useState('');
+  const [profileConfirmed, setProfileConfirmed] = useState(false);
   const [atsResult, setAtsResult] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [resumeText, setResumeText] = useState('');
@@ -45,6 +47,7 @@ const ResumeUpload = () => {
 
   const handleSelectedFile = (selectedFile) => {
     if (!selectedFile) return;
+    sessionStorage.removeItem('resumeProfileConfirmed');
     sessionStorage.removeItem('roleInterviewContext');
     sessionStorage.removeItem('roleInterviewQuestions');
     if (isAtsPage) {
@@ -71,6 +74,8 @@ const ResumeUpload = () => {
     setFile(selectedFile);
     setError('');
     setAnalysisResult(null);
+    setProfileConfirmed(false);
+    setProfileReviewText('');
   };
 
   const handleFileChange = (e) => {
@@ -102,6 +107,7 @@ const ResumeUpload = () => {
 
     setLoading(true);
     setError('');
+    sessionStorage.removeItem('resumeProfileConfirmed');
     setProgress('Uploading resume...');
 
     try {
@@ -140,30 +146,6 @@ const ResumeUpload = () => {
         extractSkillsFromText(extractedText),
       );
 
-      let roleInterviewContext = null;
-      try {
-        roleInterviewContext = JSON.parse(sessionStorage.getItem('roleInterviewContext') || 'null');
-      } catch {
-        roleInterviewContext = null;
-      }
-
-      if (!roleInterviewContext?.role) {
-        if (extractedText.length < 20) {
-          throw new Error('Resume analysis did not return enough extracted text to find matching roles.');
-        }
-        try {
-          setProgress('Finding a suitable interview role...');
-          const rolesResponse = await discoverRolesFromResume(extractedText);
-          const roles = normalizeRoles(unwrapResponse(rolesResponse));
-          setDiscoveredRoles(roles);
-          if (!roles.length) {
-            throw new Error('No matching roles were returned. Check the response from POST /roles/discover.');
-          }
-        } catch (roleError) {
-          throw new Error(roleError?.response?.data?.detail || roleError?.response?.data?.message || roleError?.message || 'Could not find matching roles for this resume.');
-        }
-      }
-
       if (result && typeof result === 'object' && !Array.isArray(result)) {
         result = { ...result, skills, resume_skills: skills, extracted_text: extractedText };
       }
@@ -198,6 +180,8 @@ const ResumeUpload = () => {
         };
 
         setResumeData(resumeData);
+        setProfileReviewText(JSON.stringify(resumeData, null, 2));
+        setProfileConfirmed(false);
         sessionStorage.setItem('resumeData', JSON.stringify(resumeData));
         sessionStorage.setItem('resumeSkills', JSON.stringify(skills));
 
@@ -290,6 +274,7 @@ const ResumeUpload = () => {
     setRoleRequirements(null);
     setResumeText('');
     setResumeAnalysis(null);
+    sessionStorage.removeItem('resumeProfileConfirmed');
 
     try {
       // Keep the existing local ATS score while the new backend workflow runs.
@@ -308,19 +293,33 @@ const ResumeUpload = () => {
         structured_extraction_status: analysis?.structured_extraction_status,
         structured_extraction_message: analysis?.structured_extraction_message,
       });
+      const confirmedSkills = normalizeSkillList(
+        getResumeSkills(structuredResume),
+        extractSkillsFromText(extractedText),
+      );
+      const parsedResumeData = {
+        ...structuredResume,
+        candidate_name: structuredResume.candidate_name || structuredResume.full_name || user?.fullName || user?.name || 'Candidate',
+        candidate_email: structuredResume.candidate_email || structuredResume.email || user?.email || '',
+        skills: confirmedSkills,
+        resume_skills: confirmedSkills,
+        technical_skills: confirmedSkills,
+        projects: structuredResume.projects || [],
+        work_experience: structuredResume.experience || structuredResume.work_experience || [],
+        education: structuredResume.education || [],
+        summary: structuredResume.summary || '',
+        extracted_text: extractedText,
+      };
+      setResumeData(parsedResumeData);
+      setProfileReviewText(JSON.stringify(parsedResumeData, null, 2));
+      setProfileConfirmed(false);
+      sessionStorage.setItem('resumeData', JSON.stringify(parsedResumeData));
+      sessionStorage.setItem('resumeSkills', JSON.stringify(confirmedSkills));
       if (localAtsResult) setAtsResult(localAtsResult);
       if (!extractedText) {
         throw new Error('Resume analysis completed, but the response did not include extracted resume text. Please check that POST /resume/analyze returns resume_text (or extracted_text/text).');
       }
       setResumeText(extractedText);
-      setProgress('Finding suitable roles from your resume...');
-      const rolesResponse = await discoverRolesFromResume(extractedText);
-      const rolesPayload = unwrapResponse(rolesResponse);
-      const roles = normalizeRoles(rolesPayload);
-      setDiscoveredRoles(roles);
-      if (!roles.length) {
-        setError('Resume was analyzed, but no roles were returned. Check the response from POST /roles/discover.');
-      }
       setProgress('');
     } catch (analysisError) {
       const backendData = analysisError?.response?.data;
@@ -329,6 +328,62 @@ const ResumeUpload = () => {
       setProgress('');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleConfirmResume = async () => {
+    let reviewedProfile;
+    try {
+      reviewedProfile = JSON.parse(profileReviewText);
+      if (!reviewedProfile || typeof reviewedProfile !== 'object' || Array.isArray(reviewedProfile)) {
+        throw new Error('The reviewed resume data must be a JSON object.');
+      }
+    } catch (reviewError) {
+      setError(reviewError.message || 'Please correct the resume data format before continuing.');
+      return;
+    }
+
+    const extractedText = String(reviewedProfile.extracted_text || '').trim();
+    if (extractedText.length < 20) {
+      setError('The confirmed resume data must include at least 20 characters of extracted text.');
+      return;
+    }
+
+    const reviewedSkills = normalizeSkillList(
+      getResumeSkills(reviewedProfile),
+      reviewedProfile.skills,
+      reviewedProfile.resume_skills,
+    );
+    reviewedProfile = {
+      ...reviewedProfile,
+      skills: reviewedSkills,
+      resume_skills: reviewedSkills,
+      technical_skills: reviewedSkills,
+      extracted_text: extractedText,
+    };
+
+    setResumeData(reviewedProfile);
+    setResumeText(extractedText);
+    setResumeAnalysis((current) => ({ ...current, ...reviewedProfile }));
+    setAnalysisResult((current) => current ? { ...current, ...reviewedProfile } : current);
+    sessionStorage.setItem('resumeData', JSON.stringify(reviewedProfile));
+    sessionStorage.setItem('resumeSkills', JSON.stringify(reviewedSkills));
+    sessionStorage.setItem('resumeProfileConfirmed', 'true');
+    setLoading(true);
+    setError('');
+    setProgress('Finding suitable roles from your confirmed resume...');
+    try {
+      const rolesResponse = await discoverRolesFromResume(extractedText);
+      const roles = normalizeRoles(unwrapResponse(rolesResponse));
+      if (!roles.length) throw new Error('No matching roles were returned. Check the response from POST /roles/discover.');
+      setDiscoveredRoles(roles);
+      setProfileConfirmed(true);
+    } catch (roleError) {
+      const backendData = roleError?.response?.data;
+      setError(backendData?.detail || backendData?.message || roleError?.message || 'Could not find matching roles for this resume.');
+    } finally {
+      setLoading(false);
+      setProgress('');
     }
   };
 
@@ -524,6 +579,20 @@ const ResumeUpload = () => {
               <p style={{ color: '#5f4a40', marginTop: 8 }}>
                 Resume analysis succeeded. {resumeText ? `Extracted ${resumeText.length.toLocaleString()} characters of resume text.` : 'Extracted resume text was not found.'}
               </p>
+              <label htmlFor="ats-resume-review" style={{ display: 'block', marginTop: 16, fontWeight: 700 }}>Review and correct extracted resume data</label>
+              <textarea
+                id="ats-resume-review"
+                value={profileReviewText}
+                onChange={(event) => setProfileReviewText(event.target.value)}
+                rows={12}
+                spellCheck="false"
+                aria-describedby="ats-resume-review-help"
+                style={{ width: '100%', marginTop: 8, padding: 12, border: '1px solid #d8c8bc', borderRadius: 8, fontFamily: 'monospace', fontSize: 13 }}
+              />
+              <p id="ats-resume-review-help" style={{ color: '#80685d', fontSize: 13, marginTop: 6 }}>Correct the extracted JSON fields before matching roles. Keep the profile as a JSON object.</p>
+              <button type="button" className="btn-primary ats-continue-button" onClick={handleConfirmResume} disabled={loading || profileConfirmed}>
+                {profileConfirmed ? 'Resume confirmed' : 'Confirm resume and find roles'} <FaArrowRight />
+              </button>
               {Array.isArray(resumeAnalysis.skills) && resumeAnalysis.skills.length > 0 && (
                 <div className="ats-suggestions">
                   <h2>Skills detected in your resume</h2>
@@ -575,6 +644,13 @@ const ResumeUpload = () => {
                   {concepts && <div className="ats-suggestions"><h2>Concepts to learn</h2><ul>{renderValueList(concepts)}</ul></div>}
                   {otherKeys.map((key) => <div className="ats-suggestions" key={key}><h2>{key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}</h2>{Array.isArray(requirementData[key]) ? <ul>{renderValueList(requirementData[key])}</ul> : <p>{typeof requirementData[key] === 'object' ? JSON.stringify(requirementData[key], null, 2) : String(requirementData[key])}</p>}</div>)}
                   {!skills && !evidence && !concepts && otherKeys.length === 0 && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(requirementData, null, 2)}</pre>}
+                  <button
+                    type="button"
+                    className="btn-primary ats-continue-button"
+                    onClick={() => navigate('/intro', { state: { resumeData, skills: resumeData?.skills || [], role: selectedRole } })}
+                  >
+                    Continue with {selectedRole} <FaArrowRight />
+                  </button>
                 </>;
               })()}
             </section>
@@ -654,6 +730,19 @@ const ResumeUpload = () => {
         {analysisResult && (
           <div style={styles.results}>
             <h3 style={styles.resultsTitle}>📊 Analysis Results</h3>
+            <label htmlFor="resume-profile-review" style={{ display: 'block', margin: '12px 0 6px', fontWeight: 700 }}>Review and correct extracted resume data</label>
+            <textarea
+              id="resume-profile-review"
+              value={profileReviewText}
+              onChange={(event) => setProfileReviewText(event.target.value)}
+              rows={12}
+              spellCheck="false"
+              style={{ width: '100%', padding: 12, border: '1px solid #d8c8bc', borderRadius: 8, fontFamily: 'monospace', fontSize: 13 }}
+            />
+            <p style={{ color: '#80685d', fontSize: 13, marginTop: 6 }}>Correct the extracted JSON fields before matching roles. Keep the profile as a JSON object.</p>
+            <button type="button" style={styles.button} onClick={handleConfirmResume} disabled={loading || profileConfirmed}>
+              {profileConfirmed ? 'Resume confirmed' : 'Confirm resume and find roles'} <FaArrowRight />
+            </button>
             
             <div style={styles.section}>
               <h4><FaUser style={styles.headerIcon} /> Candidate Info</h4>
@@ -737,7 +826,7 @@ const ResumeUpload = () => {
           </div>
         )}
 
-        {analysisResult && discoveredRoles.length > 0 && (
+        {analysisResult && profileConfirmed && discoveredRoles.length > 0 && (
           <section style={styles.results} aria-live="polite">
             <h3 style={styles.resultsTitle}>Recommended Interview Roles</h3>
             <p style={{ color: '#98786a', marginBottom: 14 }}>Choose the role you want to practice for.</p>

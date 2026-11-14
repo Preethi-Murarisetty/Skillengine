@@ -1,6 +1,6 @@
 import axios from 'axios';
 
-// In development, Vite proxies /resume-api to http://127.0.0.1:8000.
+// In development, Vite proxies /resume-api to http://127.0.0.1:8000 by default.
 // For deployment, set VITE_RESUME_API_URL to the reachable backend base URL.
 const resumeRoleApi = axios.create({
   baseURL: import.meta.env.VITE_RESUME_API_URL || '/resume-api',

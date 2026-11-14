@@ -34,6 +34,7 @@ const VoiceIntroduction = () => {
   const { loading: hookLoading } = useInterview();
 
   const [resumeData] = useState(() => {
+    if (sessionStorage.getItem('resumeProfileConfirmed') !== 'true') return null;
     const fromState = location.state?.resumeData;
     if (fromState) return fromState;
 

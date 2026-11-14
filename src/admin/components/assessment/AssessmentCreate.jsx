@@ -1219,12 +1219,12 @@ export default function AssessmentCreate() {
           }
         ),
 
-      ...(studentFilters.institution[0] ? { institution_id: studentFilters.institution[0] } : {}),
-      ...(studentFilters.campus[0] ? { campus_id: studentFilters.campus[0] } : {}),
-      ...(studentFilters.course[0] ? { course_id: studentFilters.course[0] } : {}),
-      ...(studentFilters.year[0] ? { year: studentFilters.year[0] } : {}),
-      ...(studentFilters.department[0] ? { department_id: studentFilters.department[0] } : {}),
-      ...(studentFilters.section[0] ? { section: studentFilters.section[0] } : {}),
+      ...(studentFilters.institution.length ? { institution_id: studentFilters.institution[0], institution_ids: studentFilters.institution } : {}),
+      ...(studentFilters.campus.length ? { campus_id: studentFilters.campus[0], campus_ids: studentFilters.campus } : {}),
+      ...(studentFilters.course.length ? { course_id: studentFilters.course[0], course_ids: studentFilters.course } : {}),
+      ...(studentFilters.year.length ? { year: studentFilters.year[0], years: studentFilters.year } : {}),
+      ...(studentFilters.department.length ? { department_id: studentFilters.department[0], department_ids: studentFilters.department } : {}),
+      ...(studentFilters.section.length ? { section: studentFilters.section[0], sections: studentFilters.section } : {}),
     };
 
     console.log(
