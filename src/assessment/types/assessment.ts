@@ -116,6 +116,7 @@ export interface AssessmentResult {
   correct_count?: number;
   wrong_count?: number;
   unanswered_count?: number;
+  interview_eligible?: boolean;
 }
 
 export interface AssessmentSubmissionSnapshot {

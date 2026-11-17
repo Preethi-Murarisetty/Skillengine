@@ -4,9 +4,55 @@ import { CheckCircle2, XCircle, Loader2, Clock, User, BookOpen, ChartNoAxesCombi
 import Brand from '../components/assessment/Brand';
 import { useAssessment } from '../hooks/useAssessment';
 import { getAssessmentResults, type FullAssessmentResult } from '../api/assessmentApi';
-import { getApiErrorMessage, startAIInterview } from '../../services/api';
+import { getApiErrorMessage } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { recordAssessmentResult } from '../../utils/userProgress';
+import {
+  CORE_API_ENABLED,
+  getAssessmentInterview,
+  getExamReport,
+  startAssessmentInterview,
+} from '../../services/coreApi';
+import AssessmentInterviewPanel from './AssessmentInterviewPanel';
+
+interface CoreInterview {
+  id: string;
+  status: string;
+  questions: Array<{
+    id: string;
+    skill: string;
+    question: string;
+    response?: string | null;
+    evaluation?: Record<string, unknown> | null;
+    score?: number | null;
+    feedback?: string | null;
+  }>;
+}
+
+const coreReportResult = (report: Record<string, any>): FullAssessmentResult => ({
+  assessment: {
+    id: String(report.assessment_id ?? ''),
+    title: String(report.assessment_title ?? ''),
+    passing_percentage: Number(report.passing_percentage ?? 0),
+  },
+  candidate: {
+    id: String(report.candidate_id ?? ''),
+    name: String(report.candidate_name ?? ''),
+    email: String(report.candidate_email ?? ''),
+  },
+  attempt: {
+    id: String(report.attempt_id ?? ''),
+    status: String(report.assessment_status ?? ''),
+    submitted_at: String(report.generated_at ?? ''),
+  },
+  result: {
+    score: Number(report.assessment_score ?? 0),
+    max_score: Number(report.max_score ?? 0),
+    percentage: Number(report.percentage ?? 0),
+    result: String(report.assessment_status ?? ''),
+    passing_percentage: Number(report.passing_percentage ?? 0),
+  },
+});
 
 const fmt = (iso?: string) =>
   iso ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : '—';
@@ -26,12 +72,15 @@ export default function AssessmentCompleted() {
   const [loading, setLoading] = useState(true);
   const [startingInterview, setStartingInterview] = useState(false);
   const [interviewStartError, setInterviewStartError] = useState('');
+  const [interview, setInterview] = useState<CoreInterview | null>(null);
+  const [coreReport, setCoreReport] = useState<Record<string, any> | null>(null);
 
   useEffect(() => {
     if (!state.assessmentId) { setLoading(false); return; }
     const userEmail = String(user?.email || '').trim().toLowerCase();
     const verifiedCandidateEmail = String(state.assessment?.candidate?.email || '').trim().toLowerCase();
     if (
+      !CORE_API_ENABLED &&
       state.status === 'COMPLETED' &&
       state.result?.percentage !== undefined &&
       userEmail &&
@@ -48,6 +97,24 @@ export default function AssessmentCompleted() {
         status: state.result.status || 'Completed',
         submittedAt: new Date().toISOString(),
       });
+    }
+
+    if (CORE_API_ENABLED) {
+      let active = true;
+      getExamReport(state.token)
+        .then((response) => {
+          if (!active) return;
+          setCoreReport(response.data);
+          setData(coreReportResult(response.data));
+        })
+        .catch((error) => {
+          if (!active) return;
+          const status = (error as { response?: { status?: number } }).response?.status;
+          if (status !== 409) setInterviewStartError(getApiErrorMessage(error));
+          setData(null);
+        })
+        .finally(() => { if (active) setLoading(false); });
+      return () => { active = false; };
     }
 
     getAssessmentResults(state.assessmentId)
@@ -81,74 +148,58 @@ export default function AssessmentCompleted() {
       })
       .catch(() => setData(null))
       .finally(() => setLoading(false));
-  }, [state.assessmentId, state.attemptId, state.assessment?.title, state.assessment?.candidate?.email, state.assessment?.candidate?.id, state.result, state.status, user]);
+  }, [state.assessmentId, state.attemptId, state.assessment?.title, state.assessment?.candidate?.email, state.assessment?.candidate?.id, state.result, state.status, state.token, user]);
+
+  useEffect(() => {
+    if (!CORE_API_ENABLED || !state.token) return;
+    const interviewId = sessionStorage.getItem(`skillengine:assessment-interview:${state.token}`);
+    if (!interviewId) return;
+    getAssessmentInterview(interviewId, state.token)
+      .then((response) => {
+        const restored = response.data as CoreInterview;
+        if (restored.status === 'completed') {
+          return getExamReport(state.token).then((report) => {
+            setCoreReport(report.data);
+            setData(coreReportResult(report.data));
+          });
+        }
+        setInterview(restored);
+        return undefined;
+      })
+      .catch((error) => setInterviewStartError(getApiErrorMessage(error)));
+  }, [state.token]);
 
   const handleStartInterview = async () => {
     if (startingInterview || state.status !== 'COMPLETED' || !state.assessmentId) return;
-    const cacheKey = `assessmentInterviewStart:${state.assessmentId}:${state.attemptId || 'attempt'}`;
     setStartingInterview(true);
     setInterviewStartError('');
 
     try {
-      let cached: { response?: Record<string, unknown>; topic?: string; level?: string } | null = null;
-      try {
-        const stored = sessionStorage.getItem(cacheKey);
-        cached = stored ? JSON.parse(stored) : null;
-      } catch {
-        cached = null;
+      if (!CORE_API_ENABLED) {
+        throw new Error('Assessment interviews require the configured core assessment API.');
       }
-
-      let interviewData: Record<string, any> = cached?.response ?? {};
-      let topic = cached?.topic;
-      let level = cached?.level;
-
-      if (!interviewData?.session_id) {
-        topic = state.assessment?.title
-          || sessionStorage.getItem('aiInterviewTopic')
-          || 'Technical Interview';
-        level = sessionStorage.getItem('aiInterviewLevel')
-          || state.assessment?.sections?.find((section) => section.difficulty)?.difficulty
-          || 'Easy';
-
-        const response = await startAIInterview({
-          topic,
-          level,
-          previous_questions: [],
-          question_number: 0,
-          last_candidate_answer: '',
-          next_question_type: 'basic',
-        });
-        interviewData = (response?.data ?? response ?? {}) as Record<string, any>;
-
-        if (interviewData.status === 'error' || !interviewData.session_id) {
-          throw new Error(String(interviewData.message || 'The interview service did not return a session ID.'));
-        }
-
-        try {
-          sessionStorage.setItem(cacheKey, JSON.stringify({ response: interviewData, topic, level }));
-        } catch {
-          // The response is also passed through router state for this navigation.
-        }
-      }
-
-      let totalQuestions = 15;
-      try {
-        const interviewConfig = JSON.parse(localStorage.getItem('assessmentInterviewConfig') || '{}');
-        const selectedCount = Number(interviewConfig.numberOfQuestions);
-        if (Number.isInteger(selectedCount) && selectedCount > 0) totalQuestions = selectedCount;
-      } catch {
-        // Use the standard interview length when no valid choice is saved.
-      }
-
-      navigate('/interview', {
-        state: { prestartedInterview: interviewData, topic, level, totalQuestions, assessmentId: state.assessmentId },
-      });
+      if (!state.attemptId) throw new Error('The assessment attempt ID is unavailable.');
+      const response = await startAssessmentInterview(
+        state.assessmentId,
+        state.attemptId,
+        state.token,
+      );
+      const started = response.data as CoreInterview;
+      sessionStorage.setItem(`skillengine:assessment-interview:${state.token}`, started.id);
+      setInterview(started);
     } catch (error) {
       console.error('Could not start interview after assessment:', error);
       setInterviewStartError(getApiErrorMessage(error));
     } finally {
       setStartingInterview(false);
     }
+  };
+
+  const handleInterviewComplete = async () => {
+    const response = await getExamReport(state.token);
+    setCoreReport(response.data);
+    setData(coreReportResult(response.data));
+    setInterview(null);
   };
 
   // Prefer endAssessment/GET results for the overall attempt while keeping the
@@ -338,7 +389,37 @@ export default function AssessmentCompleted() {
           </div>
         )}
 
-        {state.status === 'COMPLETED' && !loading && (
+        {coreReport?.interview_evaluations?.length > 0 && (
+          <section className="se-card space-y-3 p-5" aria-labelledby="interview-report-title">
+            <h2 id="interview-report-title" className="text-sm font-bold">Assessment Interview Evaluation</h2>
+            {coreReport?.interview_evaluations?.map((item: Record<string, any>, index: number) => (
+              <article key={`${item.skill}-${index}`} className="border-b border-stone-100 pb-3 last:border-0">
+                <p className="font-semibold">{String(item.skill ?? 'Skill')}</p>
+                <p className="mt-1 text-sm">{String(item.question ?? '')}</p>
+                <p className="mt-1 text-sm text-ink-soft">Response: {String(item.response ?? '')}</p>
+                <p className="mt-1 text-sm">Score: {item.score ?? '—'}</p>
+                {item.feedback && <p className="mt-1 text-sm text-ink-soft">{String(item.feedback)}</p>}
+              </article>
+            ))}
+          </section>
+        )}
+
+        {interview && CORE_API_ENABLED && (
+          <AssessmentInterviewPanel
+            token={state.token}
+            interview={interview}
+            busy={startingInterview}
+            onInterviewChange={setInterview}
+            onComplete={handleInterviewComplete}
+            onError={setInterviewStartError}
+          />
+        )}
+
+        {interviewStartError && (
+          <p role="alert" className="se-card p-4 text-sm text-red-700">{interviewStartError}</p>
+        )}
+
+        {state.status === 'COMPLETED' && !loading && !interview && (
           <div className="se-card p-5 text-center" role={interviewStartError ? 'alert' : 'status'}>
             {user?.email && String(state.assessment?.candidate?.email || '').trim().toLowerCase() === String(user.email).trim().toLowerCase() && (
               <button
@@ -349,20 +430,24 @@ export default function AssessmentCompleted() {
                 <ChartNoAxesCombined size={16} aria-hidden />View Performance
               </button>
             )}
-            {interviewStartError && (
-              <p className="mb-3 text-sm text-red-700">Interview could not be started: {interviewStartError}</p>
+            {CORE_API_ENABLED && fallback?.interview_eligible === true && !coreReport?.interview_evaluations?.length && (
+              <button
+                className="se-btn-primary"
+                onClick={handleStartInterview}
+                disabled={startingInterview || !state.assessmentId}
+              >
+                {startingInterview ? (
+                  <span className="inline-flex items-center gap-2">
+                    <Loader2 className="animate-spin" size={16} aria-hidden />Starting interview…
+                  </span>
+                ) : 'Start Assessment Interview'}
+              </button>
             )}
-            <button
-              className="se-btn-primary"
-              onClick={handleStartInterview}
-              disabled={startingInterview || !state.assessmentId}
-            >
-              {startingInterview ? (
-                <span className="inline-flex items-center gap-2">
-                  <Loader2 className="animate-spin" size={16} aria-hidden />Starting interview…
-                </span>
-              ) : interviewStartError ? 'Retry interview start' : 'Start Interview'}
-            </button>
+            {!CORE_API_ENABLED && (
+              <p className="text-sm text-ink-soft">
+                Assessment interview integration is unavailable. This assessment will not be redirected to Practice Interviews.
+              </p>
+            )}
           </div>
         )}
       </div>

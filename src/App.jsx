@@ -44,6 +44,7 @@ import Quizstart from './components/Quiz/QuizStart';
 
 import AssessmentInterview from './assessment/AssessmentInterview';
 import AssessmentLinkGate from './assessment/AssessmentLinkGate';
+import CareerAssessmentPage from './components/Interview/CareerAssessmentPage';
 
 // ─── Assessment module ─────────────────────────────────────────────────
 
@@ -288,6 +289,11 @@ function App() {
               <Route
                 path="/upload-resume"
                 element={<ResumeUpload />}
+              />
+
+              <Route
+                path="/career-assessment/:analysisId"
+                element={<CareerAssessmentPage />}
               />
 
               <Route

@@ -154,3 +154,42 @@ Executed checks:
 - Interview-question/response persistence, complete combined reports, maintained role-skill mapping guarantees, and adaptive-difficulty defaults need backend confirmation.
 - The assessment login-vs-token access policy remains under **Needs My Decision**; the current login gate was preserved.
 - A browser-level UI test framework and assessment API integration environment are not configured, so the resume confirmation gate is build-validated but not DOM-tested, and external assessment behaviors have no runnable tests here.
+
+## Additive Persistent Workflow Update
+
+The missing local persistence/API boundary was addressed with an opt-in FastAPI
+core workflow service. This does not replace the external Node API or legacy
+authentication. New tables are namespaced `core_`; protected APIs fail closed
+until the actual legacy JWT verification contract is configured.
+
+### Implemented and locally verified
+
+- Institution assessment persistence, candidate roster synchronization, publish
+  links, server-side eligibility/schedule validation, OTP limits, timer-bound
+  submission, MCQ/coding evaluation persistence, interview eligibility, separate
+  assessment-interview records, and final report generation.
+- Individual career profile confirmation, role recommendation/goal/skill gaps,
+  skill-wise interview and stored evaluations, actual-data report generation,
+  server-side subscription checks, personalized learning plan, and progress
+  updates.
+- Optional frontend core mode connects admin assessment creation/publication,
+  candidate exam and assessment interview flows, and the `/upload-resume`
+  career-assessment route. Assessment interviews no longer redirect into the
+  Practice Interviews route.
+- `npm run typecheck`, `npm run build`, and
+  `python -m unittest discover -s tests -p test_core_workflows.py -v` passed.
+
+### Still blocked / not end-to-end verified
+
+- Production JWT verification claims/key/issuer/audience and account-subject
+  mapping, database provisioning/export, SMTP delivery, Judge0, and Ollama were
+  not supplied or exercised. Core mode must remain disabled until these are
+  configured and confirmed.
+- Browser journeys and the legacy Node API were not integration-tested. Existing
+  Node admin dashboards/analytics and assignment discovery were not migrated.
+- Admins must enter actual question JSON in core mode; the existing question-bank
+  APIs do not expose a verified coding-question/hidden-test contract usable by
+  this new service.
+- The new PostgreSQL migration was not run against production data. See
+  [docs/core-workflows.md](./core-workflows.md) for deployment prerequisites,
+  environment values, and commands.

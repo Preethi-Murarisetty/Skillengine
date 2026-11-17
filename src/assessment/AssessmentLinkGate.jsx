@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { setPendingAssessment } from '../utils/pendingAssessment';
+import { CORE_API_ENABLED } from '../services/coreApi';
 
 const Spinner = () => (
   <div className="min-h-screen flex items-center justify-center">
@@ -26,6 +27,7 @@ const AssessmentLinkGate = ({ children }) => {
   const { token } = useParams();
   const [searchParams] = useSearchParams();
 
+  if (CORE_API_ENABLED) return children;
   if (isLoading) return <Spinner />;
 
   if (!token) return children;

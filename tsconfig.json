@@ -17,5 +17,9 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"]
   },
-  "include": ["src/assessment", "src/vite-env.d.ts"]
+  "include": [
+    "src/assessment",
+    "src/components/Interview/CareerAssessmentPage.tsx",
+    "src/vite-env.d.ts"
+  ]
 }

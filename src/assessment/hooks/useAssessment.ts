@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useRef } from 'react';
 import {
-  assignQuestions, endAssessment, evaluateQuiz,
+  assignQuestions, endAssessment, evaluateQuiz, submitCodingCode,
   generateKey, startAssessment, verifyKey,
 } from '../api/assessmentApi';
 import { saveCodingSubmission } from '../api/questionApi';
@@ -9,6 +9,8 @@ import type { AssessmentSection, AssessmentSubmissionSnapshot, Question } from '
 import { classifyError } from '../utils/errors';
 import { clearSession } from '../utils/storage';
 import { remainingSeconds } from '../utils/timer';
+import { CORE_API_ENABLED, saveMcqAnswer as saveCoreMcqAnswer } from '../../services/coreApi';
+import { languageId } from '../services/judge0Service';
 
 export function useAssessment() {
   const { state, patch, transition } = useAssessmentStore();
@@ -45,7 +47,6 @@ export function useAssessment() {
     // Step 1: verify the key — this can legitimately fail (wrong key)
     try {
       const v = await verifyKey(state.token, key);
-      console.log('[verify] raw verifyKey result:', v);
 
       const a = v.assessment;
       if (!a) {
@@ -68,7 +69,7 @@ export function useAssessment() {
     }
 
     // Step 2: assign questions — runs AFTER verify succeeds, errors here do NOT block the candidate
-    if (assessmentId) {
+    if (assessmentId && !CORE_API_ENABLED) {
       try {
         console.log('[verify] calling assign-questions for:', assessmentId);
         await assignQuestions(assessmentId);
@@ -81,7 +82,7 @@ export function useAssessment() {
         if (status === 409) patch({ questionsAssigned: true });
         // All other errors: log and continue — /start is the authoritative source
       }
-    } else {
+    } else if (!assessmentId && !CORE_API_ENABLED) {
       console.error('[verify] assessmentId is empty — skipping assign-questions');
     }
 
@@ -144,6 +145,13 @@ export function useAssessment() {
         assessmentId,
         attemptId,
         questions,
+        ...(r.answers ? {
+          answers: Object.fromEntries(r.answers.map((answer) => [
+            answer.questionId,
+            { ...answer, savedAt: now },
+          ])),
+        } : {}),
+        ...(r.codeDrafts ? { code: { ...r.codeDrafts, ...state.code } } : {}),
         startedAt: r.startedAt ?? now,
         endsAt,
         sectionIdx: 0,
@@ -158,6 +166,7 @@ export function useAssessment() {
     assessment,
     state.token,
     state.assessmentId,
+    state.code,
     transition,
     patch,
   ]);
@@ -168,14 +177,31 @@ export function useAssessment() {
     try {
       const r = await startAssessment(state.token);
       const assessmentId = r.assessmentId ?? r.assessment?.id ?? state.assessmentId;
+      if (['completed', 'expired'].includes(r.status ?? '') && r.result) {
+        transition('COMPLETED', {
+          ...(r.assessment ? { assessment: { ...r.assessment, id: assessmentId } } : {}),
+          ...(assessmentId ? { assessmentId } : {}),
+          ...(r.attemptId ? { attemptId: r.attemptId } : {}),
+          result: r.result,
+          error: null,
+        });
+        return;
+      }
       patch({
         ...(r.assessment ? { assessment: { ...r.assessment, id: assessmentId } } : {}),
         ...(assessmentId ? { assessmentId } : {}),
         ...(r.attemptId ? { attemptId: r.attemptId } : {}),
         ...(r.questions && Object.keys(r.questions).length ? { questions: r.questions } : {}),
+            ...(r.answers ? {
+              answers: Object.fromEntries(r.answers.map((answer) => [
+                answer.questionId,
+                { ...answer, savedAt: Date.now() },
+              ])),
+            } : {}),
+            ...(r.codeDrafts ? { code: { ...r.codeDrafts, ...state.code } } : {}),
       });
     } catch (e) { fail(e); }
-  }, [state.status, state.token, state.assessmentId, patch, fail]);
+  }, [state.status, state.token, state.assessmentId, state.code, patch, transition, fail]);
 
   const goTo = useCallback((sIdx: number, qIdx: number) => {
     if (!isUnlocked(sIdx)) return;
@@ -190,7 +216,14 @@ export function useAssessment() {
         [questionId]: { questionId, selectedOptionId, savedAt: Date.now() },
       },
     }));
-  }, [patch]);
+    if (CORE_API_ENABLED) {
+      saveCoreMcqAnswer(state.token, questionId, selectedOptionId)
+        .catch((error: unknown) => {
+          console.error('MCQ answer persistence failed:', error);
+          patch({ error: classifyError(error) });
+        });
+    }
+  }, [patch, state.token]);
 
   const toggleMark = useCallback((qid: string) => {
     patch((s) => ({ marked: s.marked.includes(qid) ? s.marked.filter((m) => m !== qid) : [...s.marked, qid] }));
@@ -202,11 +235,11 @@ export function useAssessment() {
 
   const persistCode = useCallback((q: Question, code: string) => {
     if (q.kind !== 'coding') return;
-    if (!q.attemptQuestionId) {
+    if (!q.attemptQuestionId && !CORE_API_ENABLED) {
       console.error('Cannot save coding submission because attempt_question_id is missing.');
       return;
     }
-    saveCodingSubmission(state.token, state.assessmentId, q.id, q.attemptQuestionId, code, q.language)
+    saveCodingSubmission(state.token, state.assessmentId, q.id, q.attemptQuestionId ?? '', code, q.language)
       .catch((error: unknown) => console.error('Coding submission API error:', error));
   }, [state.token, state.assessmentId]);
 
@@ -259,13 +292,19 @@ export function useAssessment() {
       const hasCodingQuestions = allQuestions.some((question) => question.kind === 'coding');
       const hasMcqQuestions = allQuestions.some((question) => question.kind === 'mcq');
 
+      if (CORE_API_ENABLED && hasMcqQuestions) {
+        await Promise.all(Object.values(state.answers).map((answer) =>
+          saveCoreMcqAnswer(state.token, answer.questionId, answer.selectedOptionId),
+        ));
+      }
+
       // Persist code before finalizing so the end endpoint can include coding scores.
       if (hasCodingQuestions) {
         const codingFlush = allQuestions
-          .filter((question) => question.kind === 'coding' && state.code[question.id])
+          .filter((question) => question.kind === 'coding')
           .map((question) => {
             if (question.kind !== 'coding') return Promise.resolve();
-            if (!question.attemptQuestionId) {
+            if (!question.attemptQuestionId && !CORE_API_ENABLED) {
               return Promise.reject(new Error(
                 `Cannot save coding question ${question.id}: attempt_question_id is missing.`,
               ));
@@ -274,23 +313,40 @@ export function useAssessment() {
               state.token,
               state.assessmentId,
               question.id,
-              question.attemptQuestionId,
-              state.code[question.id],
+              question.attemptQuestionId ?? '',
+              state.code[question.id] ?? question.starter_code,
               question.language,
             );
           });
-        const codingResults = await Promise.allSettled(codingFlush);
-        codingResults.forEach((result) => {
-          if (result.status === 'rejected') {
-            console.error('Coding submission API error:', result.reason);
-          }
-        });
+        if (CORE_API_ENABLED) {
+          await Promise.all(allQuestions
+            .filter((question) => question.kind === 'coding')
+            .map((question) => {
+              if (question.kind !== 'coding') return Promise.resolve();
+              return submitCodingCode(state.assessmentId, {
+                attempt_id: state.attemptId,
+                attempt_question_id: question.attemptQuestionId ?? '',
+                assessment_token: state.token,
+                question_id: question.id,
+                language: question.language,
+                language_id: languageId(question.language),
+                source_code: state.code[question.id] ?? question.starter_code,
+              });
+            }));
+        } else {
+          const codingResults = await Promise.allSettled(codingFlush);
+          codingResults.forEach((result) => {
+            if (result.status === 'rejected') {
+              console.error('Coding submission API error:', result.reason);
+            }
+          });
+        }
       }
 
       // Evaluate MCQ before finalization and retain its response separately.
       let quizEvaluation: AssessmentSubmissionSnapshot | null = null;
       let quizEvaluationError: string | null = null;
-      if (hasMcqQuestions) {
+      if (hasMcqQuestions && !CORE_API_ENABLED) {
         try {
           quizEvaluation = await evaluateQuiz(state.assessmentId, state.attemptId, answers);
         } catch (quizError) {
@@ -322,7 +378,7 @@ export function useAssessment() {
     } catch (e) {
       console.error('Assessment submission API error:', e);
       const err = classifyError(e);
-      patch({ error: err });
+      transition('ERROR', { error: err });
     } finally {
       submissionInFlight.current = false;
     }

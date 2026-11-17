@@ -22,6 +22,7 @@ import { interviewAPI } from '../../services/api';
 import { extractSkillsFromText, getResumeSkills, normalizeSkillList } from '../../utils/skills';
 import { analyzeResumeFile } from '../../services/atsResumeChecker';
 import { analyzeResumeWithBackend, discoverRolesFromResume, getRoleRequirements } from '../../services/resumeRoleApi';
+import { CORE_API_ENABLED, confirmCareerProfile, recommendCareerRoles, selectCareerGoal } from '../../services/coreApi';
 
 const ResumeUpload = () => {
   const { user } = useAuth();
@@ -44,6 +45,7 @@ const ResumeUpload = () => {
   const [selectedRole, setSelectedRole] = useState('');
   const [roleRequirements, setRoleRequirements] = useState(null);
   const [requirementsLoading, setRequirementsLoading] = useState(false);
+  const [careerAnalysisId, setCareerAnalysisId] = useState('');
 
   const handleSelectedFile = (selectedFile) => {
     if (!selectedFile) return;
@@ -70,6 +72,7 @@ const ResumeUpload = () => {
       setDiscoveredRoles([]);
       setSelectedRole('');
       setRoleRequirements(null);
+      setCareerAnalysisId('');
     }
     setFile(selectedFile);
     setError('');
@@ -373,6 +376,22 @@ const ResumeUpload = () => {
     setError('');
     setProgress('Finding suitable roles from your confirmed resume...');
     try {
+      if (CORE_API_ENABLED && isAtsPage) {
+        if (extractedText.length > 12000) {
+          throw new Error('The career assessment resume text must be 12,000 characters or fewer. Edit the reviewed resume text before continuing.');
+        }
+        await confirmCareerProfile({
+          resume_profile: reviewedProfile,
+          skills: reviewedSkills.map((name) => ({ name, category: 'technical' })),
+        });
+        const rolesResponse = await recommendCareerRoles(extractedText);
+        const roles = normalizeRoles(unwrapResponse(rolesResponse));
+        if (!roles.length) throw new Error('The career assessment service did not return any suitable roles.');
+        setDiscoveredRoles(roles);
+        setProfileConfirmed(true);
+        setProgress('');
+        return;
+      }
       const rolesResponse = await discoverRolesFromResume(extractedText);
       const roles = normalizeRoles(unwrapResponse(rolesResponse));
       if (!roles.length) throw new Error('No matching roles were returned. Check the response from POST /roles/discover.');
@@ -390,10 +409,28 @@ const ResumeUpload = () => {
   const handleRoleSelect = async (roleName) => {
     if (!roleName || !resumeText) return;
     setSelectedRole(roleName);
+    setCareerAnalysisId('');
     setRequirementsLoading(true);
     setRoleRequirements(null);
     setError('');
     try {
+      if (CORE_API_ENABLED && isAtsPage) {
+        const response = await selectCareerGoal(roleName, resumeText);
+        const analysis = response.data;
+        if (!analysis?.id) throw new Error('The career assessment service did not save the selected career goal.');
+        const requirements = {
+          ...(analysis.requirements || {}),
+          required_skills: analysis.required_skills || [],
+          matching_skills: analysis.matching_skills || [],
+          missing_skills: analysis.missing_skills || [],
+          weak_skills: analysis.weak_skills || [],
+        };
+        setCareerAnalysisId(analysis.id);
+        setRoleRequirements({ requirements });
+        sessionStorage.setItem('careerRoleAnalysisId', analysis.id);
+        sessionStorage.setItem('careerGoal', roleName);
+        return;
+      }
       const response = await getRoleRequirements(roleName, resumeText);
       const requirementsResponse = unwrapResponse(response);
       setRoleRequirements(requirementsResponse);
@@ -410,6 +447,14 @@ const ResumeUpload = () => {
     } finally {
       setRequirementsLoading(false);
     }
+  };
+
+  const continueCareerAssessment = () => {
+    if (!careerAnalysisId) {
+      setError('Select a career goal and wait for its skill-gap analysis before continuing.');
+      return;
+    }
+    navigate(`/career-assessment/${encodeURIComponent(careerAnalysisId)}`);
   };
 
   const renderValueList = (value) => {
@@ -644,12 +689,21 @@ const ResumeUpload = () => {
                   {concepts && <div className="ats-suggestions"><h2>Concepts to learn</h2><ul>{renderValueList(concepts)}</ul></div>}
                   {otherKeys.map((key) => <div className="ats-suggestions" key={key}><h2>{key.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())}</h2>{Array.isArray(requirementData[key]) ? <ul>{renderValueList(requirementData[key])}</ul> : <p>{typeof requirementData[key] === 'object' ? JSON.stringify(requirementData[key], null, 2) : String(requirementData[key])}</p>}</div>)}
                   {!skills && !evidence && !concepts && otherKeys.length === 0 && <pre style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{JSON.stringify(requirementData, null, 2)}</pre>}
+                  {CORE_API_ENABLED && (
+                    <>
+                      <div className="ats-suggestions"><h2>Skills already matched</h2><ul>{renderValueList(requirementData.matching_skills)}</ul></div>
+                      <div className="ats-suggestions"><h2>Missing skills</h2><ul>{renderValueList(requirementData.missing_skills)}</ul></div>
+                      <div className="ats-suggestions"><h2>Weak skills</h2><ul>{renderValueList(requirementData.weak_skills)}</ul></div>
+                    </>
+                  )}
                   <button
                     type="button"
                     className="btn-primary ats-continue-button"
-                    onClick={() => navigate('/intro', { state: { resumeData, skills: resumeData?.skills || [], role: selectedRole } })}
+                    onClick={() => CORE_API_ENABLED
+                      ? continueCareerAssessment()
+                      : navigate('/intro', { state: { resumeData, skills: resumeData?.skills || [], role: selectedRole } })}
                   >
-                    Continue with {selectedRole} <FaArrowRight />
+                    {CORE_API_ENABLED ? `Start skill assessment for ${selectedRole}` : `Continue with ${selectedRole}`} <FaArrowRight />
                   </button>
                 </>;
               })()}

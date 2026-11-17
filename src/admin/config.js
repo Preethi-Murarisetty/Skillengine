@@ -11,6 +11,8 @@
 //   VITE_RESULTS_API_URL=http://<host>:<port>
 import { NODE_API_URL } from "../services/api";
 
-export const API_BASE_URL = NODE_API_URL;
-export const RESULTS_API_BASE_URL = import.meta.env.VITE_RESULTS_API_URL || NODE_API_URL;
-export const PDF_API_BASE_URL = import.meta.env.VITE_RESULTS_API_URL || NODE_API_URL;
+const DEFAULT_API_BASE_URL = import.meta.env.DEV ? "" : NODE_API_URL;
+
+export const API_BASE_URL = DEFAULT_API_BASE_URL;
+export const RESULTS_API_BASE_URL = import.meta.env.VITE_RESULTS_API_URL || DEFAULT_API_BASE_URL;
+export const PDF_API_BASE_URL = import.meta.env.VITE_RESULTS_API_URL || DEFAULT_API_BASE_URL;

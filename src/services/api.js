@@ -11,6 +11,10 @@ export const NODE_API_URL =
   import.meta.env.VITE_BACKEND_URL ||
   'http://100.117.158.50:3005';
 
+const NODE_API_BASE_URL = import.meta.env.DEV
+  ? ''
+  : NODE_API_URL;
+
 // Existing Interview / Resume API
 const API_URL = import.meta.env.DEV
   ? '/api'
@@ -478,7 +482,7 @@ export const transcribeText = async (text) => {
 
 const authApi = axios.create({
   baseURL:
-    `${NODE_API_URL}/api/users`,
+    `${NODE_API_BASE_URL}/api/users`,
 
 
   headers: {
@@ -676,7 +680,7 @@ export const loginUser = async (
 
     console.log(
       '🔗 Login URL:',
-      `${NODE_API_URL}/api/users/userLogin`
+      `${NODE_API_BASE_URL}/api/users/userLogin`
     );
 
     console.log(
@@ -956,7 +960,7 @@ export const updateUserProfile =
 
     const response =
       await axios.put(
-        `${NODE_API_URL}/api/users/users/${encodeURIComponent(
+        `${NODE_API_BASE_URL}/api/users/users/${encodeURIComponent(
           userId
         )}`,
         profileData,
@@ -986,7 +990,7 @@ export const updateUserProfile =
 
 const masterApi = axios.create({
   baseURL:
-    `${NODE_API_URL}/api/master`,
+    `${NODE_API_BASE_URL}/api/master`,
 
   timeout: 30000,
 
@@ -1846,7 +1850,7 @@ export const completeInterviewAPI =
 const interviewsApi =
   axios.create({
     baseURL:
-      `${NODE_API_URL}/api`,
+      `${NODE_API_BASE_URL}/api`,
 
     timeout: 30000,
 

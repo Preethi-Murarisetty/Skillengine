@@ -62,6 +62,7 @@ const TRANSITIONS: Record<
   IN_PROGRESS: [
     'SECTION_COMPLETED',
     'SUBMITTING',
+    'COMPLETED',
     'EXPIRED',
     'ERROR',
   ],
@@ -69,6 +70,7 @@ const TRANSITIONS: Record<
   SECTION_COMPLETED: [
     'IN_PROGRESS',
     'SUBMITTING',
+    'COMPLETED',
   ],
 
   SUBMITTING: [
@@ -87,6 +89,7 @@ const TRANSITIONS: Record<
     'INSTRUCTIONS',
     'IN_PROGRESS',
     'SUBMITTING',
+    'COMPLETED',
   ],
 };
 

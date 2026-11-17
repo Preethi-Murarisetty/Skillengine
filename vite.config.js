@@ -119,6 +119,14 @@ export default defineConfig(({ mode }) => {
           secure: false,
           rewrite: (path) => path.replace(/^\/resume-api/, ''),
         },
+
+        // Versioned persistent assessment and career workflow API.
+        '/core-api': {
+          target: resumeApiUrl,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path.replace(/^\/core-api/, '/api/v1'),
+        },
       },
     },
 

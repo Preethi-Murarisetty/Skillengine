@@ -12,6 +12,14 @@ import {
 import { LOCAL_INSTITUTIONAL_CATALOG } from "../../data/institutionalCatalog";
 import { matchesStudentFilters, normalizeStudent, normalizeStudentList, uniqueOptions } from "../../utils/studentDirectory";
 import { saveLocalAssignedAssessment, studentIdFromUser } from "../../../services/localAssignedAssessments";
+import {
+  CORE_API_ENABLED,
+  createCoreAssessment,
+  createCoreInstitution,
+  getCoreInstitutions,
+  publishCoreAssessment,
+  syncInstitutionMembers,
+} from "../../../services/coreApi";
 
 const CANDIDATE_EXAM_BASE_URL = "https://skillenginetest.stackenzo.com/exam";
 
@@ -45,6 +53,7 @@ const newSection = (type, sequence) => ({
   subject_id: "",
   topic_id: "",
   difficulty: "easy",
+  questions_json: "",
 });
 
 // "2026-09-28T22:30" -> "2026-09-28T22:30:00"
@@ -349,6 +358,24 @@ function SectionEditor({
           </select>
         </div>
 
+        {CORE_API_ENABLED && (
+          <div className="md:col-span-2">
+            <label className={labelCls}>Assessment questions and private evaluation data *</label>
+            <textarea
+              className={`${inputCls} font-mono text-xs`}
+              rows={10}
+              value={section.questions_json}
+              onChange={(e) => set({ questions_json: e.target.value })}
+              placeholder={section.section_type === "mcq"
+                ? '[{"prompt":"Question text","marks":1,"public_data":{"options":[{"id":"a","text":"Option A"},{"id":"b","text":"Option B"}]},"answer_key":{"correct_option_id":"a"}}]'
+                : '[{"prompt":"Problem statement","marks":10,"public_data":{"title":"Problem title","description":"Problem statement","language":"python","starter_code":"","sample_test_cases":[{"input":"1","expected_output":"1"}]},"hidden_test_cases":[{"input":"1","expected_output":"1"}]}]'}
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              Enter a JSON array with complete questions. MCQ answer keys and coding hidden test cases are stored server-side and are never sent to candidates.
+            </p>
+          </div>
+        )}
+
         {/* Number of Questions */}
         <div>
           <label className={labelCls}>
@@ -528,6 +555,7 @@ export default function AssessmentCreate() {
 
   const [created, setCreated] =
     useState(null);
+  const [pendingPublishId, setPendingPublishId] = useState("");
 
   const userIdOf = (candidate) => normalizeStudent(candidate).id;
 
@@ -1034,6 +1062,18 @@ export default function AssessmentCreate() {
       return "Add at least one section.";
     }
 
+    if (CORE_API_ENABLED) {
+      if (form.schedule_type !== "scheduled" || !form.starts_at || !form.ends_at) {
+        return "The persistent assessment workflow requires a scheduled start and end time.";
+      }
+      if (!studentFilters.institution.length) {
+        return "Select an institution before creating a persistent assessment.";
+      }
+      if (sections.length < 2 || new Set(sections.map((section) => section.section_type)).size !== 2) {
+        return "A persistent institutional assessment requires both MCQ and coding sections.";
+      }
+    }
+
     for (
       const [i, s] of sections.entries()
     ) {
@@ -1059,6 +1099,18 @@ export default function AssessmentCreate() {
         return `Section ${
           i + 1
         }: question count must be greater than 0.`;
+      }
+
+      if (CORE_API_ENABLED) {
+        let questions;
+        try {
+          questions = JSON.parse(s.questions_json || "");
+        } catch {
+          return `Section ${i + 1}: enter valid JSON for the complete question list.`;
+        }
+        if (!Array.isArray(questions) || !questions.length) {
+          return `Section ${i + 1}: add at least one complete question.`;
+        }
       }
 
       if (
@@ -1227,16 +1279,118 @@ export default function AssessmentCreate() {
       ...(studentFilters.section.length ? { section: studentFilters.section[0], sections: studentFilters.section } : {}),
     };
 
-    console.log(
-      "Create Assessment Payload:",
-      payload
-    );
+    console.debug("Creating assessment", {
+      title: payload.title,
+      sectionCount: payload.sections.length,
+      candidateCount: payload.candidates.length,
+      coreWorkflow: CORE_API_ENABLED,
+    });
 
     setSaving(true);
     setError("");
+    let draftAssessmentId = pendingPublishId;
 
     try {
-      const data = await createAssessment(payload);
+      let data;
+      if (CORE_API_ENABLED) {
+        if (pendingPublishId) {
+          const publication = await publishCoreAssessment(pendingPublishId);
+          data = {
+            id: pendingPublishId,
+            ...publication.data,
+            assignments: publication.data.assignments,
+          };
+          setPendingPublishId("");
+        } else {
+        const institutionName = cohortLabels.institution || normalizeStudent(selectedUsers[0]).institution.label;
+        if (!institutionName) throw new Error("The selected institution name is unavailable.");
+        const institutionsResponse = await getCoreInstitutions();
+        const institution = institutionsResponse.data.institutions.find(
+          (item) => item.name.trim().toLowerCase() === institutionName.trim().toLowerCase(),
+        ) || (await createCoreInstitution(institutionName)).data;
+
+        const institutionMembers = institutionalStudents.filter((student) =>
+          student.institution.label.trim().toLowerCase() === institutionName.trim().toLowerCase(),
+        );
+        if (!institutionMembers.length) {
+          throw new Error("No roster members with this institution could be synchronized to the persistent assessment service.");
+        }
+        await syncInstitutionMembers(institution.id, institutionMembers.map((student) => ({
+          user_subject: student.id,
+          email: student.email,
+          full_name: student.name,
+          department: student.department.label,
+          year: student.year.label || student.year.key,
+          section: student.section,
+        })));
+
+        const selectedIds = [...new Set(selectedUsers.map(userIdOf).filter(Boolean))];
+        const extraFilters = ["department", "year", "section"]
+          .filter((field) => studentFilters[field].length);
+        const sameSelectedGroup = selectedIds.length === selectedUsers.length
+          && selectedIds.length === institutionalStudents.filter((student) =>
+            matchesStudentFilters(student, studentFilters),
+          ).length;
+        let targetScope = "individual";
+        let targetCriteria = { candidate_ids: selectedIds };
+        if (sameSelectedGroup && extraFilters.length === 0) {
+          targetScope = "institution";
+          targetCriteria = {};
+        } else if (sameSelectedGroup && extraFilters.length === 1) {
+          const field = extraFilters[0];
+          const names = [...new Set(selectedUsers.map((candidate) => {
+            const student = normalizeStudent(candidate);
+            return field === "section" ? student.section : student[field].label || student[field].key;
+          }).filter(Boolean))];
+          if (names.length) {
+            targetScope = field;
+            targetCriteria = { [field]: names };
+          }
+        }
+
+        const coreSections = sections.map((section, index) => {
+          const questions = JSON.parse(section.questions_json);
+          return {
+            name: section.name.trim(),
+            description: section.description.trim(),
+            sequence: index + 1,
+            section_type: section.section_type,
+            duration_seconds: Math.round(Number(section.duration_minutes) * 60),
+            questions: questions.map((question, questionIndex) => ({
+              ...question,
+              sequence: questionIndex + 1,
+              question_type: section.section_type,
+            })),
+          };
+        });
+        const createdAssessment = await createCoreAssessment({
+          institution_id: institution.id,
+          title: form.title.trim(),
+          description: form.description.trim(),
+          instructions: form.instructions.trim(),
+          starts_at: new Date(form.starts_at).toISOString(),
+          ends_at: new Date(form.ends_at).toISOString(),
+          duration_seconds: Math.round(Number(form.duration_minutes) * 60),
+          passing_percentage: Number(form.passing_percentage),
+          target_scope: targetScope,
+          target_criteria: targetCriteria,
+          sections: coreSections,
+        });
+        const assessmentId = String(createdAssessment.data.id || createdAssessment.data.assessment_id || "");
+        if (!assessmentId) throw new Error("The assessment service did not return the saved assessment ID.");
+        draftAssessmentId = assessmentId;
+        setPendingPublishId(assessmentId);
+        const publication = await publishCoreAssessment(assessmentId);
+        data = {
+          ...createdAssessment.data,
+          ...publication.data,
+          assignments: publication.data.assignments,
+        };
+        setPendingPublishId("");
+        }
+      } else {
+        data = await createAssessment(payload);
+      }
 
       const localId = `local-${globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
       const persistedId = String(data?.id || data?.assessment_id || data?.assessmentId || data?._id || localId);
@@ -1289,7 +1443,7 @@ export default function AssessmentCreate() {
       );
 
       setError(
-        err.message ||
+        `${err.message || "Unable to create assessment."}${draftAssessmentId ? ` Assessment ${draftAssessmentId} was saved as a draft; submit again to retry publication.` : ""}` ||
           "Unable to create assessment."
       );
     } finally {
@@ -1345,6 +1499,7 @@ export default function AssessmentCreate() {
   ============================================================ */
 
   if (created) {
+    const assignments = Array.isArray(created.assignments) ? created.assignments : [];
     const link = findDeep(
       created,
       [
@@ -1369,7 +1524,9 @@ export default function AssessmentCreate() {
     )?.[1];
     const candidateToken = tokenFromLink || token;
     const shareLink = candidateToken
-      ? `${CANDIDATE_EXAM_BASE_URL}/${encodeURIComponent(candidateToken)}`
+      ? CORE_API_ENABLED
+        ? `${window.location.origin}/exam/${encodeURIComponent(candidateToken)}`
+        : `${CANDIDATE_EXAM_BASE_URL}/${encodeURIComponent(candidateToken)}`
       : null;
 
     return (
@@ -1383,7 +1540,23 @@ export default function AssessmentCreate() {
           {form.title}
         </p>
 
-        {shareLink && (
+        {assignments.length > 0 ? (
+          <div className="mb-4 space-y-3">
+            <label className={labelCls}>Candidate-specific exam links</label>
+            {assignments.map((assignment) => (
+              <div key={assignment.candidate_id} className="rounded border border-gray-200 p-3">
+                <p className="mb-1 text-sm font-semibold">{assignment.candidate_name || assignment.candidate_email}</p>
+                <input
+                  readOnly
+                  className={inputCls}
+                  value={`${window.location.origin}/exam/${encodeURIComponent(assignment.token)}`}
+                  onFocus={(event) => event.target.select()}
+                  aria-label={`Exam link for ${assignment.candidate_email}`}
+                />
+              </div>
+            ))}
+          </div>
+        ) : shareLink ? (
           <div className="mb-4">
 
             <label className={labelCls}>
@@ -1400,7 +1573,7 @@ export default function AssessmentCreate() {
             />
 
           </div>
-        )}
+        ) : null}
 
         <details className="mb-6">
           <summary className="cursor-pointer text-sm text-gray-600">

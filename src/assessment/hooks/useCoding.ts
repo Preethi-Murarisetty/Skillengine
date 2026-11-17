@@ -3,10 +3,11 @@ import { runCodingCode, submitCodingCode } from '../api/assessmentApi';
 import { useAssessment } from './useAssessment';
 import { languageId } from '../services/judge0Service';
 import type { CodingQuestion, CodingSubmission } from '../types/assessment';
+import { CORE_API_ENABLED } from '../../services/coreApi';
 
 const toExecStatus = (s: string): CodingSubmission['status'] => {
   const l = s.toLowerCase();
-  if (l.includes('submit') || ['success', 'ok', 'completed'].includes(l)) return 'submitted';
+  if (l.includes('submit') || ['success', 'ok', 'completed', 'executed'].includes(l)) return 'submitted';
   if (l.includes('accept')) return 'accepted';
   if (l.includes('wrong')) return 'wrong_answer';
   if (l.includes('compile')) return 'compilation_error';
@@ -31,12 +32,13 @@ export function useCoding(q: CodingQuestion) {
     setBusy('run');
     put({ questionId: q.id, mode: 'run', status: 'running', results: [], passed: 0, total: 0 });
     try {
-      if (!q.attemptQuestionId) {
+      if (!q.attemptQuestionId && !CORE_API_ENABLED) {
         throw new Error('Cannot run this coding question because attempt_question_id is missing.');
       }
       const r = await runCodingCode(state.assessmentId, {
         attempt_id: q.attemptId ?? state.attemptId,
-        attempt_question_id: q.attemptQuestionId,
+        attempt_question_id: q.attemptQuestionId ?? '',
+        assessment_token: state.token,
         question_id: q.id,
         language: q.language,
         language_id: languageId(q.language),
@@ -65,18 +67,19 @@ export function useCoding(q: CodingQuestion) {
     } finally {
       setBusy(null);
     }
-  }, [code, q.language, q.id, q.attemptId, q.attemptQuestionId, state.assessmentId, state.attemptId, put]);
+  }, [code, q.language, q.id, q.attemptId, q.attemptQuestionId, state.assessmentId, state.attemptId, state.token, put]);
 
   const submit = useCallback(async () => {
     setBusy('submit');
     put({ questionId: q.id, mode: 'submit', status: 'running', results: [], passed: 0, total: 0 });
     try {
-      if (!q.attemptQuestionId) {
+      if (!q.attemptQuestionId && !CORE_API_ENABLED) {
         throw new Error('Cannot submit this coding question because attempt_question_id is missing.');
       }
       const r = await submitCodingCode(state.assessmentId, {
         attempt_id: q.attemptId ?? state.attemptId,
-        attempt_question_id: q.attemptQuestionId,
+        attempt_question_id: q.attemptQuestionId ?? '',
+        assessment_token: state.token,
         question_id: q.id,
         language: q.language,
         language_id: languageId(q.language),
@@ -105,7 +108,7 @@ export function useCoding(q: CodingQuestion) {
     } finally {
       setBusy(null);
     }
-  }, [q, code, state.assessmentId, state.attemptId, put]);
+  }, [q, code, state.assessmentId, state.attemptId, state.token, put]);
 
   return { code, setCode: (c: string) => setCode(q.id, c), result, busy, run, submit };
 }

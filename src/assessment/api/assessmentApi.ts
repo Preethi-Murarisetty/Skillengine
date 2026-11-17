@@ -11,6 +11,16 @@ import type {
 import { isRec, num, str } from '../utils/sanitize';
 import { normalizeQuestion } from './questionApi';
 import { languageId } from '../services/judge0Service';
+import {
+  CORE_API_ENABLED,
+  getExamSession,
+  requestExamOtp,
+  runCoreCoding,
+  startExam,
+  submitCoreCoding,
+  submitExam,
+  verifyExamOtp,
+} from '../../services/coreApi';
 
 const unwrap = (data: unknown): Record<string, unknown> => {
   if (isRec(data) && isRec(data.data)) return data.data;
@@ -115,6 +125,14 @@ export interface GenerateKeyResult {
 export const generateKey = async (
   token: string,
 ): Promise<GenerateKeyResult> => {
+  if (CORE_API_ENABLED) {
+    const response = await requestExamOtp(token);
+    return {
+      success: response.data?.success !== false,
+      expiresIn: num(response.data?.expires_in),
+      message: str(response.data?.message) || undefined,
+    };
+  }
   const ep = resolve('GENERATE_KEY', { token });
 
   const res = await api.request({
@@ -164,6 +182,19 @@ export const verifyKey = async (
   token: string,
   key: string,
 ): Promise<VerifyResult> => {
+  if (CORE_API_ENABLED) {
+    const response = await verifyExamOtp(token, key);
+    const body = response.data;
+    const rawAssessment = isRec(body.assessment) ? body.assessment : undefined;
+    const assessment = rawAssessment
+      ? normalizeAssessment(rawAssessment)
+      : undefined;
+    return {
+      assessment,
+      assessmentId: str(rawAssessment?.id) || undefined,
+      sessionToken: str(body.session_token) || undefined,
+    };
+  }
   const ep = resolve('VERIFY_KEY', { token });
 
   const res = await api.request({
@@ -240,6 +271,10 @@ export interface StartResult {
   attemptId?: string;
   assessment?: Assessment;
   questions?: Record<string, Question[]>;
+  codeDrafts?: Record<string, string>;
+  answers?: Array<{ questionId: string; selectedOptionId: string | null }>;
+  status?: string;
+  result?: AssessmentResult;
 }
 
 const timestamp = (
@@ -312,6 +347,42 @@ export const parseQuestions = (
 export const startAssessment = async (
   token: string,
 ): Promise<StartResult> => {
+  if (CORE_API_ENABLED) {
+    const session = await getExamSession(token);
+    const response = session.data?.status === 'verified'
+      ? await startExam(token)
+      : session;
+    const body = response.data;
+    const rawAssessment = isRec(body.assessment) ? body.assessment : {};
+    const assessment = normalizeAssessment(rawAssessment);
+    const rawQuestions = Array.isArray(body.questions) ? body.questions : [];
+    return {
+      startedAt: timestamp(body.started_at),
+      endsAt: timestamp(body.ends_at),
+      remainingSeconds: num(body.remaining_seconds),
+      assessmentId: str(rawAssessment.id) || undefined,
+      attemptId: str(body.attempt_id) || undefined,
+      status: str(body.status) || undefined,
+      result: normalizeSubmissionResult(body) ?? undefined,
+      assessment,
+      questions: parseQuestions(rawQuestions, assessment.sections[0]?.id ?? ''),
+      codeDrafts: isRec(body.coding_drafts)
+        ? Object.fromEntries(
+            Object.entries(body.coding_drafts).filter(
+              (entry): entry is [string, string] => typeof entry[1] === 'string',
+            ),
+          )
+        : {},
+      answers: Array.isArray(body.answers)
+        ? body.answers.filter(isRec).map((answer) => ({
+            questionId: str(answer.question_id),
+            selectedOptionId: typeof answer.selected_option_id === 'string'
+              ? answer.selected_option_id
+              : null,
+          }))
+        : [],
+    };
+  }
   const ep = resolve('START', { token });
 
   const res = await api.request({
@@ -467,6 +538,7 @@ export const assignQuestions = async (
   assessmentId: string,
 ): Promise<void> => {
   if (!assessmentId) throw new Error('assignQuestions: assessmentId is required');
+  if (CORE_API_ENABLED) return;
   // Use the assessmentId directly — it is a plain UUID, no encoding needed.
   console.log('[assignQuestions] POST /api/assessment/' + assessmentId + '/assign-questions');
   await api.post(`/assessment/${assessmentId}/assign-questions`);
@@ -511,6 +583,7 @@ const normalizeSubmissionResult = (data: unknown): AssessmentResult | null => {
     correct_count: num(section?.correct),
     wrong_count: num(section?.wrong),
     unanswered_count: num(section?.unanswered),
+    interview_eligible: typeof r.interview_eligible === 'boolean' ? r.interview_eligible : undefined,
   };
 
   return result.score !== undefined ||
@@ -521,6 +594,7 @@ const normalizeSubmissionResult = (data: unknown): AssessmentResult | null => {
     result.correct_count !== undefined ||
     result.wrong_count !== undefined ||
     result.unanswered_count !== undefined
+    || result.interview_eligible !== undefined
     ? result
     : null;
 };
@@ -534,6 +608,9 @@ export const evaluateQuiz = async (
   attemptId: string,
   answers: QuizAnswer[],
 ): Promise<AssessmentSubmissionSnapshot> => {
+  if (CORE_API_ENABLED) {
+    return { normalized: null, payload: null };
+  }
   const res = await api.post(
     '/assessment/evaluateQuiz',
     {
@@ -563,6 +640,13 @@ export const endAssessment = async (
   token: string,
   payload: EndAssessmentPayload,
 ): Promise<AssessmentSubmissionSnapshot> => {
+  if (CORE_API_ENABLED) {
+    const response = await submitExam(token);
+    return {
+      normalized: normalizeSubmissionResult(response.data),
+      payload: response.data,
+    };
+  }
   const ep = resolve('END', { token });
 
   const res = await api.request({
@@ -609,6 +693,7 @@ export interface CodingRunPayload {
   attempt_id: string;
   attempt_question_id: string;
   attemptQuestionId?: string;
+  assessment_token?: string;
   question_id: string;
   language: string;
   language_id: number;
@@ -686,6 +771,28 @@ export const runCodingCode = async (
   assessmentId: string,
   payload: CodingRunPayload,
 ): Promise<CodingRunResult> => {
+  if (CORE_API_ENABLED) {
+    if (!payload.assessment_token) throw new Error('Assessment token is required to run code.');
+    const response = await runCoreCoding(payload.assessment_token, payload.question_id, {
+      source_code: payload.source_code,
+      language: payload.language,
+      language_id: payload.language_id || languageId(payload.language),
+      stdin: payload.stdin ?? '',
+    });
+    const body = response.data;
+    return {
+      status: str(body.status, body.passed === true ? 'Accepted' : 'Unknown'),
+      stdout: str(body.stdout ?? body.output) || undefined,
+      stderr: str(body.stderr ?? body.error) || undefined,
+      compile_output: str(body.compile_output) || undefined,
+      message: str(body.message) || undefined,
+      passed: typeof body.passed === 'boolean'
+        ? body.passed
+        : typeof body.total === 'number' && body.total > 0
+          ? body.passed === body.total
+          : undefined,
+    };
+  }
   const res = await api.post(
     `/assessment/${assessmentId}/coding/run`,
     ensureCodingLanguageId(payload),
@@ -732,6 +839,31 @@ export const submitCodingCode = async (
   assessmentId: string,
   payload: CodingRunPayload,
 ): Promise<CodingSubmitResult> => {
+  if (CORE_API_ENABLED) {
+    if (!payload.assessment_token) throw new Error('Assessment token is required to submit code.');
+    const response = await submitCoreCoding(payload.assessment_token, payload.question_id, {
+      source_code: payload.source_code,
+      language: payload.language,
+      language_id: payload.language_id || languageId(payload.language),
+    });
+    const body = response.data;
+    const results = Array.isArray(body.results) ? body.results.filter(isRec).map((result, index) => ({
+      id: str(result.id, `tc-${index + 1}`),
+      passed: result.passed === true,
+      hidden: result.hidden === true,
+      status: str(result.status) || undefined,
+      input: str(result.input) || undefined,
+      expected: str(result.expected) || undefined,
+      actual: str(result.actual) || undefined,
+    })) : [];
+    return {
+      status: str(body.status, 'unknown'),
+      score: num(body.score),
+      passed: num(body.passed),
+      total: num(body.total),
+      results,
+    };
+  }
   const res = await api.post(
     `/assessment/${assessmentId}/coding/submit`,
     ensureCodingLanguageId(payload),

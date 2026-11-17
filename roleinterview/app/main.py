@@ -27,6 +27,10 @@ from app.services.question_generation import (
     generate_concept_questions,
     generate_questions_for_skill,
 )
+from app.routers.core_admin import router as core_admin_router
+from app.routers.core_career import router as core_career_router
+from app.routers.core_exam import router as core_exam_router
+from app.routers.core_interview import router as core_interview_router
 
 # Optional integrations: the existing API can still start if these
 # packages are not installed. OCR/structured extraction will report
@@ -78,6 +82,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+app.include_router(core_admin_router, prefix="/api/v1")
+app.include_router(core_exam_router, prefix="/api/v1")
+app.include_router(core_interview_router, prefix="/api/v1")
+app.include_router(core_career_router, prefix="/api/v1")
 
 # -------------------- Request Models --------------------
 

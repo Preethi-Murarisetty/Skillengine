@@ -3,6 +3,8 @@ interface ImportMetaEnv {
   readonly VITE_BACKEND_URL?: string;
   readonly VITE_API_BASE_URL?: string;
   readonly VITE_JUDGE0_URL?: string;
+  readonly VITE_CORE_API_ENABLED?: string;
+  readonly VITE_CORE_API_BASE_URL?: string;
   /** Optional backend endpoint templates (use {token} / {assessmentId}). See README. */
   readonly VITE_EP_VERIFY_KEY?: string;
   readonly VITE_EP_ASSESSMENT_DETAILS?: string;

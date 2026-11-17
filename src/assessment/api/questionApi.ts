@@ -3,6 +3,7 @@ import { isConfigured, resolve } from './endpoints';
 import type { CodingQuestion, MCQQuestion, Question, TestCase } from '../types/assessment';
 import { isRec, num, safeImageUrl, str } from '../utils/sanitize';
 import { languageId } from '../services/judge0Service';
+import { CORE_API_ENABLED, saveCodingDraft } from '../../services/coreApi';
 
 const toOptions = (v: unknown): MCQQuestion['options'] => {
   if (!Array.isArray(v)) return [];
@@ -57,7 +58,7 @@ export const normalizeQuestion = (
       attemptQuestionId: str(r.attempt_question_id ?? r.attemptQuestionId) || undefined,
       attemptId: str(r.attempt_id ?? r.attemptId) || undefined,
       title: str(r.title, 'Coding question'),
-      description: str(r.description ?? r.problem_statement ?? r.question_text),
+      description: str(r.description ?? r.problem_statement ?? r.question_text ?? r.prompt),
       input_format: str(r.input_format ?? r.input_description) || undefined,
       output_format: str(r.output_format ?? r.output_description) || undefined,
       constraints: Array.isArray(cons) ? cons.map((c) => str(c)) : typeof cons === 'string' && cons ? cons.split('\n') : [],
@@ -111,6 +112,14 @@ export const saveCodingSubmission = async (
   code: string,
   language: string,
 ) => {
+  if (CORE_API_ENABLED) {
+    await saveCodingDraft(token, questionId, {
+      source_code: code,
+      language,
+      language_id: languageId(language),
+    });
+    return;
+  }
   if (!attemptQuestionId.trim()) {
     throw new Error('Cannot save coding submission because attempt_question_id is missing.');
   }
