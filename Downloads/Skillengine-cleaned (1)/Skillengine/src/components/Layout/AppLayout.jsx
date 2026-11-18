@@ -1,0 +1,301 @@
+import React, { useEffect, useRef, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  FaBell,
+  FaChartBar,
+  FaChartLine,
+  FaClipboardCheck,
+  FaCog,
+  FaDumbbell,
+  FaHome,
+  FaLaptopCode,
+  FaMicrophone,
+  FaRocket,
+  FaSignOutAlt,
+  FaUser,
+  } from 'react-icons/fa';
+import { useAuth } from '../../hooks/useAuth';
+import { isAdminUser } from '../../utils/admin';
+import {
+  PENDING_ASSESSMENT_EVENT,
+  assessmentStartPath,
+  getPendingAssessment,
+  markPendingAssessmentSeen,
+} from '../../utils/pendingAssessment';
+import BrandLogo from '../common/BrandLogo';
+
+const navItems = [
+  { label: 'Dashboard', icon: <FaHome />, path: '/dashboard' },
+  { label: 'Sample Test', icon: <FaClipboardCheck />, path: '/sample-test' },
+];
+
+const practiceItems = [
+  { label: 'Quiz', icon: <FaClipboardCheck />, path: '/quiz' },
+  { label: 'Interviews', icon: <FaMicrophone />, path: '/interviews' },
+  { label: 'Coding', icon: <FaChartLine />, path: '/upcoming-assignment' },
+  { label: 'Performance', icon: <FaChartLine />, path: '/performance' },
+];
+
+const assessmentItems = [
+  { label: 'MCQ & Coding', icon: <FaLaptopCode />, path: '/assessments' },
+  { label: 'Interview', icon: <FaMicrophone />, path: '/assessments/interview' },
+];
+
+const isAssessmentInterviewPath = (pathname) => pathname.toLowerCase().startsWith('/assessments/interview');
+
+const isAssessmentItemActive = (label, pathname) => {
+  const path = pathname.toLowerCase();
+  if (label === 'Interview') return isAssessmentInterviewPath(path);
+  if (label === 'MCQ & Coding') return path.startsWith('/assessments') && !isAssessmentInterviewPath(path);
+  return false;
+};
+
+const isSampleTestPath = (pathname) => {
+  const path = pathname.toLowerCase();
+  return (
+    path === '/sample-test' ||
+    path === '/resume' ||
+    path === '/upload-resume' ||
+    path === '/intro' ||
+    path === '/interview' ||
+    path === '/interview/questions' ||
+    path === '/report' ||
+    path === '/interview/report' ||
+    path.startsWith('/sample-test/')
+  );
+};
+
+const isPracticeItemActive = (label, pathname) => {
+  if (label === 'Quiz') return pathname === '/quiz' || pathname.startsWith('/quiz/') || pathname === '/practice';
+  if (label === 'Interviews') return pathname === '/interviews' || pathname.startsWith('/interviews/');
+  if (label === 'Coding') return pathname === '/upcoming-assignment';
+  if (label === 'Performance') return pathname === '/performance';
+  return false;
+};
+
+const isNavItemActive = (item, pathname) => {
+  if (item.path === '/dashboard') return pathname === '/' || pathname === '/dashboard';
+  if (item.path === '/sample-test') return isSampleTestPath(pathname);
+  return pathname === item.path;
+};
+
+const pageNames = [
+  { match: (path) => path === '/' || path === '/dashboard', name: 'Overview' },
+  { match: (path) => isSampleTestPath(path), name: 'Sample Test' },
+  { match: (path) => path === '/performance', name: 'Performance' },
+  { match: (path) => path === '/report' || path === '/interview/report', name: 'Interview Report' },
+  { match: (path) => path === '/interviews' || path === '/interview' || path === '/interview/questions', name: 'Interviews' },
+  { match: (path) => path === '/upcoming-assignment', name: 'Coding' },
+  { match: (path) => path === '/resume' || path === '/intro' || path === '/upload-resume', name: 'Interview Upload' },
+  { match: (path) => path === '/courses', name: 'Courses' },
+  { match: (path) => isAssessmentInterviewPath(path), name: 'Assessment Interview' },
+  { match: (path) => path.toLowerCase().startsWith('/assessments'), name: 'Assessment' },
+  { match: (path) => path === '/profile', name: 'Profile' },
+];
+
+const getPageName = (pathname) => pageNames.find(({ match }) => match(pathname))?.name || 'skillEngine';
+
+const Sidebar = ({ isOpen, onClose }) => {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [isPracticeOpen, setIsPracticeOpen] = useState(true);
+  const [isAssessmentOpen, setIsAssessmentOpen] = useState(true);
+
+  const handleNavigation = (path) => {
+    onClose();
+    navigate(path);
+  };
+
+  const isPracticeActive = practiceItems.some((item) => isPracticeItemActive(item.label, location.pathname));
+  const isAssessmentActive = assessmentItems.some((item) => isAssessmentItemActive(item.label, location.pathname));
+
+  return (
+    <aside className={`dashboard-sidebar ${isOpen ? 'is-open' : ''}`}>
+      <div className="dashboard-brand"><BrandLogo className="dashboard-shell-logo" /></div>
+      <nav className="dashboard-nav" aria-label="Dashboard navigation">
+        {navItems.map((item) => (
+          <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-nav-item ${isNavItemActive(item, location.pathname) ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
+        ))}
+        <button type="button" aria-expanded={isPracticeOpen} onClick={() => setIsPracticeOpen((open) => !open)} className={`dashboard-nav-item ${isPracticeActive ? 'is-active' : ''}`}><span><FaDumbbell /></span>Practice<span className="dashboard-nav-chevron">{isPracticeOpen ? '⌃' : '⌄'}</span></button>
+        {isPracticeOpen && <div className="dashboard-subnav">{practiceItems.map((item) => (
+          <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-subnav-item ${isPracticeItemActive(item.label, location.pathname) ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
+        ))}</div>}
+        <button type="button" aria-expanded={isAssessmentOpen} onClick={() => setIsAssessmentOpen((open) => !open)} className={`dashboard-nav-item ${isAssessmentActive ? 'is-active' : ''}`}><span><FaClipboardCheck /></span>Assessment<span className="dashboard-nav-chevron">{isAssessmentOpen ? '⌃' : '⌄'}</span></button>
+        {isAssessmentOpen && <div className="dashboard-subnav">{assessmentItems.map((item) => (
+          <button type="button" key={item.label} onClick={() => handleNavigation(item.path)} className={`dashboard-subnav-item ${isAssessmentItemActive(item.label, location.pathname) ? 'is-active' : ''}`}><span>{item.icon}</span>{item.label}</button>
+        ))}</div>}
+      </nav>
+      <div className="sidebar-prompt"><FaRocket /><strong>Your skills<br />build your future</strong><span>Keep taking quizzes,<br />keep growing!</span></div>
+    </aside>
+  );
+};
+
+const ProfileDropdown = ({ user, onLogout }) => {
+  const navigate = useNavigate();
+  const [isOpen, setIsOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) setIsOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
+
+  const openProfile = () => {
+    setIsOpen(false);
+    navigate('/profile');
+  };
+
+  return (
+    <div className="dashboard-profile-menu" ref={menuRef}>
+      <button type="button" className="dashboard-user-button" aria-expanded={isOpen} aria-haspopup="menu" onClick={() => setIsOpen((open) => !open)}>
+        <span className="dashboard-avatar">{(user?.fullName || 'U').charAt(0).toUpperCase()}</span>
+        <span>{user?.fullName || 'User'}</span>
+        <span className="dashboard-chevron">⌄</span>
+      </button>
+      {isOpen && <div className="dashboard-dropdown" role="menu">
+        <button type="button" onClick={openProfile}><FaUser /> Profile</button>
+        <button type="button" onClick={openProfile}><FaCog /> Settings</button>
+        {isAdminUser(user) && <button type="button" onClick={() => { setIsOpen(false); navigate('/admin/dashboard'); }}><FaChartBar /> Admin Dashboard</button>}
+        <button type="button" onClick={onLogout}><FaSignOutAlt /> Logout</button>
+      </div>}
+    </div>
+  );
+};
+
+const NotificationPanel = () => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [pendingAssessment, setPendingAssessmentState] = useState(() => getPendingAssessment());
+  const panelRef = useRef(null);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const refresh = () => setPendingAssessmentState(getPendingAssessment());
+    window.addEventListener(PENDING_ASSESSMENT_EVENT, refresh);
+    window.addEventListener('storage', refresh);
+    return () => {
+      window.removeEventListener(PENDING_ASSESSMENT_EVENT, refresh);
+      window.removeEventListener('storage', refresh);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (pendingAssessment?.unseen) {
+      setIsOpen(true);
+      markPendingAssessmentSeen();
+    }
+  }, [pendingAssessment?.unseen]);
+
+  const openAssessment = () => {
+    if (!pendingAssessment) return;
+    setIsOpen(false);
+    navigate(assessmentStartPath(pendingAssessment.token));
+  };
+
+  useEffect(() => {
+    const handleOutsideClick = (event) => {
+      if (panelRef.current && !panelRef.current.contains(event.target)) setIsOpen(false);
+    };
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') setIsOpen(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, []);
+
+  return (
+    <div className="dashboard-notification-wrapper" ref={panelRef}>
+      <button
+        type="button"
+        className={`dashboard-icon-button dashboard-notification-button ${isOpen ? 'is-active' : ''}`}
+        aria-label="Notifications"
+        aria-expanded={isOpen}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <FaBell />
+        {pendingAssessment?.unseen && <span className="dashboard-notification-dot" aria-hidden="true" />}
+      </button>
+
+      {isOpen && (
+        <div className="dashboard-notification-panel" role="dialog" aria-label="Notifications panel">
+          <div className="dashboard-notification-header">
+            <h3>Notifications</h3>
+            <span>{pendingAssessment?.unseen ? '1 new' : ' '}</span>
+          </div>
+
+          <div className="dashboard-notification-list">
+            {pendingAssessment && (
+              <button type="button" className="dashboard-notification-item" onClick={openAssessment}>
+                <span className="dashboard-notification-bullet is-unread" />
+                <div>
+                  <strong>Upcoming assessment</strong>
+                  <p>You have an assessment waiting. Click here to generate your key and begin.</p>
+                  <small>
+                    {Number.isFinite(Date.parse(pendingAssessment.receivedAt))
+                      ? new Date(pendingAssessment.receivedAt).toLocaleString()
+                      : 'Just now'}
+                  </small>
+                </div>
+              </button>
+            )}
+            {!pendingAssessment && <p className="dashboard-notification-empty">No new notifications.</p>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const TopHeader = ({ onMenuToggle }) => {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login');
+  };
+
+  return (
+    <header className="dashboard-topbar">
+      <div className="dashboard-mobile-brand"><button type="button" className="dashboard-menu-button" onClick={onMenuToggle} aria-label="Toggle dashboard menu">☰</button><BrandLogo className="dashboard-shell-mobile-logo" /></div>
+      <div className="dashboard-breadcrumb"><span>Dashboard</span><span>/</span><strong>{getPageName(location.pathname)}</strong></div>
+      <div className="dashboard-user-actions">
+        <NotificationPanel />
+        <ProfileDropdown user={user} onLogout={handleLogout} />
+      </div>
+    </header>
+  );
+};
+
+const AppLayout = ({ children }) => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  return (
+    <div className="dashboard-page">
+      <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
+      <div className="dashboard-content">
+        <TopHeader onMenuToggle={() => setIsSidebarOpen((open) => !open)} />
+        <div className="app-page-content">{children || <Outlet />}</div>
+      </div>
+    </div>
+  );
+};
+
+export { AppLayout, Sidebar, TopHeader, ProfileDropdown };
+export default AppLayout;
