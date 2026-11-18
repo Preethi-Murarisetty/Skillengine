@@ -1,0 +1,229 @@
+{
+  "a199117e454aab6ba795cc14c93fe80ebaf31f28c0f1dcafea9b85e7479e670b": [
+    {
+      "role": "Data Analyst",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Data Visualization Specialist",
+      "reason": "Resume evidence supports this role through these skills: Power BI. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Power BI"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Data Science Intern",
+      "reason": "Resume evidence supports this role through these skills: Data Annotation. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Data Annotation"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Machine Learning Engineer Intern",
+      "reason": "Resume evidence supports this role through these skills: Machine Learning. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Machine Learning"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Data Analyst Intern",
+      "reason": "Resume evidence supports this role through these skills: Data Annotation, Data Cleaning. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Data Annotation",
+        "Data Cleaning"
+      ],
+      "additional_skills_to_check": []
+    }
+  ],
+  "f96aa8581582047948f656a80c062a0c43e7fa527a6227b6e754d1f4255414de": [
+    {
+      "role": "UI/UX Designer",
+      "reason": "Resume evidence supports this role through these skills: Figma, Sketch, Adobe Illustrator, Photoshop. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Figma",
+        "Sketch",
+        "Adobe Illustrator",
+        "Photoshop"
+      ],
+      "additional_skills_to_check": [
+        "Relevant unconfirmed skill"
+      ]
+    },
+    {
+      "role": "Product Designer Intern",
+      "reason": "Resume evidence supports this role through these skills: Figma, Sketch, Core visual and interaction design principles. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Figma",
+        "Sketch",
+        "Core visual and interaction design principles"
+      ],
+      "additional_skills_to_check": [
+        "Relevant unconfirmed skill"
+      ]
+    },
+    {
+      "role": "UI/UX Designer Intern",
+      "reason": "Resume evidence supports this role through these skills: Figma, Sketch, Core visual and interaction design principles. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Figma",
+        "Sketch",
+        "Core visual and interaction design principles"
+      ],
+      "additional_skills_to_check": [
+        "Relevant unconfirmed skill"
+      ]
+    }
+  ],
+  "648708b8f1248681f03ce5fc90ad4f2c432d2e5e42de8f3cf03471b98be26eb5": [
+    {
+      "role": "Software Developer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Data Analyst",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Web Developer",
+      "reason": "Resume evidence supports this role through these skills: React. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "React"
+      ],
+      "additional_skills_to_check": [
+        "JavaScript"
+      ]
+    },
+    {
+      "role": "Backend Developer",
+      "reason": "Resume evidence supports this role through these skills: Python. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python"
+      ],
+      "additional_skills_to_check": [
+        "Node.js"
+      ]
+    },
+    {
+      "role": "Full Stack Developer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL, React. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL",
+        "React"
+      ],
+      "additional_skills_to_check": [
+        "Node.js"
+      ]
+    }
+  ],
+  "d7ab802f38e88d22839fc52e5f00c53c8a5fa26bf3013af1ea4dd63301d8309e": [
+    {
+      "role": "AI/ML Intern",
+      "reason": "Resume evidence supports this role through these skills: Python, JavaScript, React.js, React Router, HTML, CSS, REST APIs, Axios, API integration, frontend-backend communication, API debugging, error handling, SDLC, Documentation, Cross-functional Collaboration. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "JavaScript",
+        "React.js",
+        "React Router",
+        "HTML",
+        "CSS",
+        "REST APIs",
+        "Axios",
+        "API integration",
+        "frontend-backend communication",
+        "API debugging",
+        "error handling",
+        "SDLC",
+        "Documentation",
+        "Cross-functional Collaboration"
+      ],
+      "additional_skills_to_check": [
+        "Relevant unconfirmed skill"
+      ]
+    }
+  ],
+  "77864d6a77ef5d2c69af2e0bfb68cf1803f3b4c02e30eccbfbc141fb96ce9ab3": [
+    {
+      "role": "Software Engineer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL"
+      ],
+      "additional_skills_to_check": []
+    }
+  ],
+  "75636e87c845c5d0eb56edf34287a6a35761272c66b4645b5cae8f8a4ce9f0f0": [
+    {
+      "role": "Python Developer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Full Stack Developer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL, React, FastAPI, Docker, AWS. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL",
+        "React",
+        "FastAPI",
+        "Docker",
+        "AWS"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Backend Developer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL, Docker, AWS. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL",
+        "Docker",
+        "AWS"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "Software Engineer",
+      "reason": "Resume evidence supports this role through these skills: Python, SQL, Docker, AWS. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Python",
+        "SQL",
+        "Docker",
+        "AWS"
+      ],
+      "additional_skills_to_check": []
+    },
+    {
+      "role": "DevOps Engineer",
+      "reason": "Resume evidence supports this role through these skills: Docker, AWS. This is a preliminary match, not a guarantee of eligibility.",
+      "supporting_skills": [
+        "Docker",
+        "AWS"
+      ],
+      "additional_skills_to_check": []
+    }
+  ]
+}
